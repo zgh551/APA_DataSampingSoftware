@@ -211,13 +211,18 @@
             this.textBox34 = new System.Windows.Forms.TextBox();
             this.button6 = new System.Windows.Forms.Button();
             this.button9 = new System.Windows.Forms.Button();
+            this.tableLayoutPanel30 = new System.Windows.Forms.TableLayoutPanel();
+            this.label82 = new System.Windows.Forms.Label();
             this.label79 = new System.Windows.Forms.Label();
+            this.button10 = new System.Windows.Forms.Button();
+            this.button13 = new System.Windows.Forms.Button();
             this.timer_rev = new System.Windows.Forms.Timer(this.components);
             this.timer1 = new System.Windows.Forms.Timer(this.components);
             this.saveFileDialog1 = new System.Windows.Forms.SaveFileDialog();
-            this.tableLayoutPanel30 = new System.Windows.Forms.TableLayoutPanel();
-            this.label82 = new System.Windows.Forms.Label();
-            this.button10 = new System.Windows.Forms.Button();
+            this.timer2 = new System.Windows.Forms.Timer(this.components);
+            this.button14 = new System.Windows.Forms.Button();
+            this.listBox2 = new System.Windows.Forms.ListBox();
+            this.button15 = new System.Windows.Forms.Button();
             this.tableLayoutPanel1.SuspendLayout();
             this.tableLayoutPanel2.SuspendLayout();
             this.groupBox1.SuspendLayout();
@@ -281,6 +286,7 @@
             this.tableLayoutPanel1.Controls.Add(this.tableLayoutPanel17, 2, 0);
             this.tableLayoutPanel1.Controls.Add(this.tableLayoutPanel21, 3, 0);
             this.tableLayoutPanel1.Controls.Add(this.tableLayoutPanel27, 4, 0);
+            this.tableLayoutPanel1.Controls.Add(this.listBox2, 4, 1);
             this.tableLayoutPanel1.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tableLayoutPanel1.Location = new System.Drawing.Point(0, 0);
             this.tableLayoutPanel1.Name = "tableLayoutPanel1";
@@ -2307,11 +2313,16 @@
             this.tableLayoutPanel27.Controls.Add(this.button9, 0, 3);
             this.tableLayoutPanel27.Controls.Add(this.tableLayoutPanel30, 0, 4);
             this.tableLayoutPanel27.Controls.Add(this.button10, 0, 5);
+            this.tableLayoutPanel27.Controls.Add(this.button13, 0, 6);
+            this.tableLayoutPanel27.Controls.Add(this.button14, 0, 7);
+            this.tableLayoutPanel27.Controls.Add(this.button15, 0, 8);
             this.tableLayoutPanel27.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tableLayoutPanel27.Location = new System.Drawing.Point(1203, 3);
             this.tableLayoutPanel27.Name = "tableLayoutPanel27";
-            this.tableLayoutPanel27.RowCount = 7;
+            this.tableLayoutPanel27.RowCount = 9;
             this.tableLayoutPanel27.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 150F));
+            this.tableLayoutPanel27.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 50F));
+            this.tableLayoutPanel27.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 50F));
             this.tableLayoutPanel27.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 50F));
             this.tableLayoutPanel27.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 50F));
             this.tableLayoutPanel27.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 50F));
@@ -2425,26 +2436,6 @@
             this.button9.UseVisualStyleBackColor = true;
             this.button9.Click += new System.EventHandler(this.button9_Click);
             // 
-            // label79
-            // 
-            this.label79.Anchor = System.Windows.Forms.AnchorStyles.None;
-            this.label79.AutoSize = true;
-            this.label79.Location = new System.Drawing.Point(192, 13);
-            this.label79.Name = "label79";
-            this.label79.Size = new System.Drawing.Size(44, 18);
-            this.label79.TabIndex = 5;
-            this.label79.Text = "null";
-            // 
-            // timer_rev
-            // 
-            this.timer_rev.Interval = 200;
-            this.timer_rev.Tick += new System.EventHandler(this.timer_rev_Tick);
-            // 
-            // timer1
-            // 
-            this.timer1.Interval = 10;
-            this.timer1.Tick += new System.EventHandler(this.timer1_Tick);
-            // 
             // tableLayoutPanel30
             // 
             this.tableLayoutPanel30.ColumnCount = 2;
@@ -2470,6 +2461,16 @@
             this.label82.TabIndex = 0;
             this.label82.Text = "采样间隔时间";
             // 
+            // label79
+            // 
+            this.label79.Anchor = System.Windows.Forms.AnchorStyles.None;
+            this.label79.AutoSize = true;
+            this.label79.Location = new System.Drawing.Point(192, 13);
+            this.label79.Name = "label79";
+            this.label79.Size = new System.Drawing.Size(44, 18);
+            this.label79.TabIndex = 5;
+            this.label79.Text = "null";
+            // 
             // button10
             // 
             this.button10.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -2480,6 +2481,64 @@
             this.button10.Text = "图形窗口显示";
             this.button10.UseVisualStyleBackColor = true;
             this.button10.Click += new System.EventHandler(this.button10_Click);
+            // 
+            // button13
+            // 
+            this.button13.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.button13.Location = new System.Drawing.Point(3, 403);
+            this.button13.Name = "button13";
+            this.button13.Size = new System.Drawing.Size(288, 44);
+            this.button13.TabIndex = 6;
+            this.button13.Text = "CAN总线数据保存";
+            this.button13.UseVisualStyleBackColor = true;
+            this.button13.Click += new System.EventHandler(this.button13_Click);
+            // 
+            // timer_rev
+            // 
+            this.timer_rev.Interval = 20;
+            this.timer_rev.Tick += new System.EventHandler(this.timer_rev_Tick);
+            // 
+            // timer1
+            // 
+            this.timer1.Interval = 70;
+            this.timer1.Tick += new System.EventHandler(this.timer1_Tick);
+            // 
+            // timer2
+            // 
+            this.timer2.Interval = 10;
+            this.timer2.Tick += new System.EventHandler(this.timer2_Tick);
+            // 
+            // button14
+            // 
+            this.button14.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.button14.Location = new System.Drawing.Point(3, 453);
+            this.button14.Name = "button14";
+            this.button14.Size = new System.Drawing.Size(288, 44);
+            this.button14.TabIndex = 7;
+            this.button14.Text = "313更新周期测试";
+            this.button14.UseVisualStyleBackColor = true;
+            this.button14.Click += new System.EventHandler(this.button14_Click);
+            // 
+            // listBox2
+            // 
+            this.listBox2.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.listBox2.FormattingEnabled = true;
+            this.listBox2.ItemHeight = 18;
+            this.listBox2.Location = new System.Drawing.Point(1203, 553);
+            this.listBox2.Name = "listBox2";
+            this.listBox2.Size = new System.Drawing.Size(294, 287);
+            this.listBox2.TabIndex = 5;
+            // 
+            // button15
+            // 
+            this.button15.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.button15.Location = new System.Drawing.Point(3, 503);
+            this.button15.Name = "button15";
+            this.button15.Size = new System.Drawing.Size(288, 38);
+            this.button15.TabIndex = 8;
+            this.button15.Text = "List清除";
+            this.button15.UseVisualStyleBackColor = true;
+            this.button15.Click += new System.EventHandler(this.button15_Click);
             // 
             // Form1
             // 
@@ -2749,6 +2808,11 @@
         private System.Windows.Forms.TableLayoutPanel tableLayoutPanel30;
         private System.Windows.Forms.Label label82;
         private System.Windows.Forms.Button button10;
+        private System.Windows.Forms.Button button13;
+        private System.Windows.Forms.Timer timer2;
+        private System.Windows.Forms.Button button14;
+        private System.Windows.Forms.ListBox listBox2;
+        private System.Windows.Forms.Button button15;
     }
 }
 

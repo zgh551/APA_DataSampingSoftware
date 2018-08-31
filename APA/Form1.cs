@@ -7,6 +7,8 @@ using USB2XXX;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
+
+#region ZLG CAN Struct
 //1.ZLGCAN系列接口卡信息的数据类型。
 public struct VCI_BOARD_INFO
 {
@@ -127,7 +129,9 @@ public struct VCI_FILTER_RECORD
     public UInt32 Start;
     public UInt32 End;
 }
+#endregion
 
+#region User Define Struct
 /*** LIN Device Data Struct ***/
 public struct LIN_STP318_ReadData
 {
@@ -143,14 +147,14 @@ public struct LIN_STP313_ReadData
     public UInt16 TOF2;
     public byte status;
 }
+#endregion
 
-/// <summary>
-/// 
-/// </summary>
+
 namespace APA
 {
     public partial class Form1 : Form
     {
+        #region ZLG CAN Variable define and the interface
         // 设备型号
         const int VCI_PCI5121 = 1;
         const int VCI_PCI9810 = 2;
@@ -224,7 +228,8 @@ namespace APA
                         0x1C002C, 0x1600B3, 0x1C00E0,
                         0x1C01C1
                 };
-        ////////////////////////////////////////
+        
+
         const UInt32 STATUS_OK = 1;
 
         UInt32 m_bOpen = 0;
@@ -239,34 +244,53 @@ namespace APA
         string[] BaudRate = new string[10] { "1000kbps","800kbps","500kbps","250kbps","125kbps","100kbps","50kbps","20kbps","10kbps","5kbps"};
         string[] ECU_Status = new string[8] { "待机模式","自动驾驶模式","未知", "未知", "手动模式", "手动介入恢复模式", "警告模式", "错误模式" };
         string[] ComunicationStatus = new string[2] { "通信正常", "通信异常" };
+        #endregion
 
-
+        #region LIN Device Configure relation varibale
         //Lin设备相关参数
         Int32[] DevHandles = new Int32[20];
         Int32 DevHandle = 0;
         Byte LINIndex = 0;
+        Int32 DevNum;
+        #endregion
+
+        #region Sensing Relation Control Status Variable
         string[] SensingStatus = new string[5] { "Blockage","Noise Error","Hardware Fault","Communication Error","Proximity State"};
 
         TextBox[] SensingControl_9  = new TextBox[5];
         TextBox[] SensingControl_10 = new TextBox[5];
         TextBox[] SensingControl_11 = new TextBox[5];
         TextBox[] SensingControl_12 = new TextBox[5];
+
+        public LIN_STP313_ReadData[] m_LIN_STP313_ReadData = new LIN_STP313_ReadData[4];
+        #endregion
+
+        #region Time Relation Function Interface and Variable
         [DllImport("winmm")]
         static extern uint timeGetTime();
         [DllImport("winmm")]
         static extern void timeBeginPeriod(int t);
         [DllImport("winmm")]
         static extern void timeEndPeriod(int t);
+        UInt64 SystemTime, LastSystemTime,TimeErr;
+        #endregion
 
-        uint last_time = 0;
+        #region File Operation Relation Variable
         StreamWriter DataSave;
         string FilePath, localFilePath, newFileName, fileNameExt;
         bool DataSaveStatus = false;
+        #endregion
 
-        LIN_STP313_ReadData[] m_LIN_STP313_ReadData = new LIN_STP313_ReadData[2];
-        double VehicleSpeed,VehicleDistance=0;
+        #region Vehicle Relation Variable
+        double VehicleSpeed = 0, VehicleDistance = 0;
+        Int16  VehicleAngle = 0;
+        UInt16 VehicleAgularVelocity = 0;
+        #endregion
 
+        
         ChartShowForm cf = new ChartShowForm();
+        public delegate void LRU_STP_Test(ref LIN_STP313_ReadData[] LIN_STP313_data);
+
         #region 函数方法
         /// <summary>
         /// CAN0 Receive Function
@@ -328,15 +352,18 @@ namespace APA
                         str += " " + System.Convert.ToString(obj.Data[7], 16);
 
                 }
-                listBox1.Items.Add(str);
-                listBox1.SelectedIndex = listBox1.Items.Count - 1;
+                //listBox1.Items.Add(str);
+                //listBox1.SelectedIndex = listBox1.Items.Count - 1;
                 if (obj.ID == 0x0C1)
                 {
+                    VehicleAngle = (Int16)((UInt16)(obj.Data[2] << 8 | obj.Data[3]) * 0.1 - 780);
+                    VehicleAgularVelocity = (UInt16)(obj.Data[1] * 25);
                     label11.Text = ECU_Status[obj.Data[0]];//ECU状态
                     label12.Text = ComunicationStatus[obj.Data[5]];
-                    textBox2.Text = Convert.ToString(obj.Data[1] * 25) + "°/s";//转角速度
+                    textBox2.Text = Convert.ToString(VehicleAgularVelocity) + "°/s";//转角速度
                     textBox3.Text = Convert.ToString((obj.Data[4] - 128) * 0.07) + " Nm";//扭矩
-                    textBox4.Text = Convert.ToString((Int16)((UInt16)(obj.Data[2] << 8 | obj.Data[3]) * 0.1 - 780)) + "°";//目标角度
+                    
+                    textBox4.Text = Convert.ToString(VehicleAngle) + "°";//目标角度
                     textBox5.Text = Convert.ToString((Int16)((UInt16)(obj.Data[6] << 8 | obj.Data[7]) * 0.1 - 780)) + "°";//实际角度
                 }
             }
@@ -403,8 +430,8 @@ namespace APA
                         str += " " + System.Convert.ToString(obj.Data[7], 16);
 
                 }
-                listBox1.Items.Add(str);
-                listBox1.SelectedIndex = listBox1.Items.Count - 1;
+                //listBox1.Items.Add(str);
+                //listBox1.SelectedIndex = listBox1.Items.Count - 1;
                 if (obj.ID == 0x300)
                 {
                     VehicleSpeed = (UInt16)(obj.Data[0] << 8 | obj.Data[1]) / 15.4583;
@@ -517,8 +544,8 @@ namespace APA
             sendobj.ID = 0x300;// System.Convert.ToUInt32("0x" + textBox_ID.Text, 16);
             sendobj.DataLen = 8;
 
-            sendobj.Data[0] = 0x01;
-            sendobj.Data[1] = 0x35;
+            sendobj.Data[0] = 0x0;
+            sendobj.Data[1] = 0x9A;
 
             sendobj.Data[2] = 0x25;
 
@@ -548,7 +575,7 @@ namespace APA
         /// </summary>
         /// <param name="tx">指定传感器的发送状态</param>
         /// <param name="rx">指定传感器的接收状态</param>
-        void InitSensing_STP318(byte tx,byte rx)
+        void InitSensing_STP318(int DevHandle,byte tx,byte rx)
         {
             int ret;
             USB2LIN.LIN_MSG[] msg = new USB2LIN.LIN_MSG[1];
@@ -577,7 +604,7 @@ namespace APA
         /// </summary>
         /// <param name="id">输入所要读取的ID号</param>
         /// <returns></returns>
-        LIN_STP318_ReadData ReadData_STP318(byte id)
+        LIN_STP318_ReadData ReadData_STP318(int DevHandle,byte id)
         {
             int ret;
             LIN_STP318_ReadData rd_msg = new LIN_STP318_ReadData();
@@ -658,7 +685,7 @@ namespace APA
         /// STP313 Send and receive function
         /// </summary>
         /// 
-        void InitSensing_STP313(byte tx_rx)
+        void InitSensing_STP313(int DevHandle, byte tx_rx)
         {
             int ret;
             USB2LIN.LIN_MSG[] msg = new USB2LIN.LIN_MSG[1];
@@ -686,7 +713,7 @@ namespace APA
         /// </summary>
         /// <param name="id">the id od the input datat</param>
         /// <returns></returns>
-        LIN_STP313_ReadData ReadData_STP313(byte id)
+        LIN_STP313_ReadData ReadData_STP313(int DevHandle,byte id)
         {
             int ret;
             LIN_STP313_ReadData rd_msg = new LIN_STP313_ReadData();
@@ -763,106 +790,144 @@ namespace APA
             }
         }
 
-        /*** 传感器的调度时序 ***/
-
-        void LRU_ScheduleTime(ref LIN_STP313_ReadData[] LIN_STP313_data)
+        /// <summary>
+        /// 传感器的调度时序
+        /// </summary>
+        /// <param name="LIN_STP313_data"> ref STP313 Struct data </param>
+        public void LRU_ScheduleTime(ref LIN_STP313_ReadData[] LIN_STP313_data)
         {
-            //LIN_STP313_ReadData m_STP313_test_data = new LIN_STP313_ReadData();
-            //9号传感器
-            LIN_STP313_data[0] = ReadData_STP313(0x1f);
+            //IntPtr pt = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(USB2LIN.LIN_MSG)));
+            //USB2LIN.LIN_MSG[] msg = new USB2LIN.LIN_MSG[1];
+            //int ret = USB2LIN.LIN_Read(DevHandle, LINIndex, pt, 1);
+            //int ret1 = USB2LIN.LIN_Read(DevHandle, LINIndex, pt, 1);
+            //ret = USB2LIN.LIN_Write(DevHandle, LINIndex, msg, 1);
+            for(int i=0;i< DevNum;i++)
+            {
+                //9号传感器
+                LIN_STP313_data[2 * i + 0] = ReadData_STP313(DevHandles[i], 0x1f);           
+                //10号传感器
+                LIN_STP313_data[2 * i + 1] = ReadData_STP313(DevHandles[i], 0x5E);
+            }
+
+
+            InitSensing_STP313(DevHandles[0], 0x03);
+            //InitSensing_STP313(DevHandles[1], 0x03);
+
             DataMapping2Control_STP313(LIN_STP313_data[0], ref SensingControl_9);
-            //10号传感器
-            LIN_STP313_data[1] = ReadData_STP313(0x5E);
             DataMapping2Control_STP313(LIN_STP313_data[1], ref SensingControl_10);
-
-            InitSensing_STP313(0x03);
-            System.Threading.Thread.Sleep(30);
+            //System.Threading.Thread.Sleep(20);
         }
 
-        void TimeScheduleStatus1()
+        //void TimeScheduleStatus1()
+        //{
+        //    LIN_STP318_ReadData m_STP318_rev_data = new LIN_STP318_ReadData();
+        //    LIN_STP313_ReadData m_STP313_rev_data = new LIN_STP313_ReadData();
+        //    //Start
+        //    InitSensing_STP318(0x02, 0x07);//2 send ,1,2,3 receive
+
+        //    //9号传感器
+        //    m_STP313_rev_data = ReadData_STP313(0x1f);
+        //    DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_9);
+        //    //10号传感器
+        //    m_STP313_rev_data = ReadData_STP313(0x5E);
+        //    DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_10);
+
+        //    InitSensing_STP313(0x03);
+        //    System.Threading.Thread.Sleep(30);
+        //    //Step 2 -> 30ms
+        //    m_STP318_rev_data = ReadData_STP318(0xcf);
+        //    DataMapping2Control_STP318(m_STP318_rev_data, ref textBox1, ref label26);
+
+        //    m_STP318_rev_data = ReadData_STP318(0x8E);
+        //    DataMapping2Control_STP318(m_STP318_rev_data, ref textBox6, ref label27);
+
+        //    m_STP318_rev_data = ReadData_STP318(0x0D);
+        //    DataMapping2Control_STP318(m_STP318_rev_data, ref textBox7, ref label28);
+        //    System.Threading.Thread.Sleep(20);
+        //    //Step3 -> 50ms
+        //    InitSensing_STP318(0x08, 0x08);//configure 4 send and 4 receive
+
+        //    //9号传感器
+        //    m_STP313_rev_data = ReadData_STP313(0x1f);
+        //    DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_9);
+        //    //10号传感器
+        //    m_STP313_rev_data = ReadData_STP313(0x5E);
+        //    DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_10);
+
+        //    InitSensing_STP313(0x03);
+        //    System.Threading.Thread.Sleep(30);
+        //    // 80 ms
+        //    m_STP318_rev_data = ReadData_STP318(0x4C);//read sensing 4 data
+        //    DataMapping2Control_STP318(m_STP318_rev_data, ref textBox8, ref label29);
+        //    // 100ms
+        //    InitSensing_STP318(0x01, 0x01);//configure sensing one tx and rx
+        //    //9号传感器
+        //    m_STP313_rev_data = ReadData_STP313(0x1f);
+        //    DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_9);
+        //    //10号传感器
+        //    m_STP313_rev_data = ReadData_STP313(0x5E);
+        //    DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_10);
+        //    InitSensing_STP313(0x03);
+        //    System.Threading.Thread.Sleep(30);
+        //    // 130ms
+        //    m_STP318_rev_data = ReadData_STP318(0xcf);//read sensing one data
+        //    DataMapping2Control_STP318(m_STP318_rev_data, ref textBox1, ref label26);
+        //    // 150ms
+        //    InitSensing_STP318(0x04, 0x0E);//configure sensing one tx and rx
+        //    //9号传感器
+        //    m_STP313_rev_data = ReadData_STP313(0x1f);
+        //    DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_9);
+        //    //10号传感器
+        //    m_STP313_rev_data = ReadData_STP313(0x5E);
+        //    DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_10);
+        //    InitSensing_STP313(0x03);
+        //    System.Threading.Thread.Sleep(30);
+        //    // 180ms
+        //    m_STP318_rev_data = ReadData_STP318(0x8E);
+        //    DataMapping2Control_STP318(m_STP318_rev_data, ref textBox6, ref label27);
+        //    m_STP318_rev_data = ReadData_STP318(0x0D);
+        //    DataMapping2Control_STP318(m_STP318_rev_data, ref textBox7, ref label28);
+        //    m_STP318_rev_data = ReadData_STP318(0x4C);
+        //    DataMapping2Control_STP318(m_STP318_rev_data, ref textBox8, ref label29);
+        //}
+
+        private delegate void FlushClient(); //代理
+        UInt32 count=0;
+        private void test()
         {
-            LIN_STP318_ReadData m_STP318_rev_data = new LIN_STP318_ReadData();
-            LIN_STP313_ReadData m_STP313_rev_data = new LIN_STP313_ReadData();
-            //Start
-            InitSensing_STP318(0x02, 0x07);//2 send ,1,2,3 receive
+            if(this.label79.InvokeRequired)
+            {
+                FlushClient fc = new FlushClient(test);
+                this.Invoke(fc);
+            }
+            else
+            {
+                SystemTime = timeGetTime();
+                TimeErr = SystemTime - LastSystemTime;
+                LastSystemTime = SystemTime;
 
-            //9号传感器
-            m_STP313_rev_data = ReadData_STP313(0x1f);
-            DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_9);
-            //10号传感器
-            m_STP313_rev_data = ReadData_STP313(0x5E);
-            DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_10);
-
-            InitSensing_STP313(0x03);
-            System.Threading.Thread.Sleep(30);
-            //Step 2 -> 30ms
-            m_STP318_rev_data = ReadData_STP318(0xcf);
-            DataMapping2Control_STP318(m_STP318_rev_data, ref textBox1, ref label26);
-
-            m_STP318_rev_data = ReadData_STP318(0x8E);
-            DataMapping2Control_STP318(m_STP318_rev_data, ref textBox6, ref label27);
-
-            m_STP318_rev_data = ReadData_STP318(0x0D);
-            DataMapping2Control_STP318(m_STP318_rev_data, ref textBox7, ref label28);
-            System.Threading.Thread.Sleep(20);
-            //Step3 -> 50ms
-            InitSensing_STP318(0x08, 0x08);//configure 4 send and 4 receive
-
-            //9号传感器
-            m_STP313_rev_data = ReadData_STP313(0x1f);
-            DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_9);
-            //10号传感器
-            m_STP313_rev_data = ReadData_STP313(0x5E);
-            DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_10);
-
-            InitSensing_STP313(0x03);
-            System.Threading.Thread.Sleep(30);
-            // 80 ms
-            m_STP318_rev_data = ReadData_STP318(0x4C);//read sensing 4 data
-            DataMapping2Control_STP318(m_STP318_rev_data, ref textBox8, ref label29);
-            // 100ms
-            InitSensing_STP318(0x01, 0x01);//configure sensing one tx and rx
-            //9号传感器
-            m_STP313_rev_data = ReadData_STP313(0x1f);
-            DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_9);
-            //10号传感器
-            m_STP313_rev_data = ReadData_STP313(0x5E);
-            DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_10);
-            InitSensing_STP313(0x03);
-            System.Threading.Thread.Sleep(30);
-            // 130ms
-            m_STP318_rev_data = ReadData_STP318(0xcf);//read sensing one data
-            DataMapping2Control_STP318(m_STP318_rev_data, ref textBox1, ref label26);
-            // 150ms
-            InitSensing_STP318(0x04, 0x0E);//configure sensing one tx and rx
-            //9号传感器
-            m_STP313_rev_data = ReadData_STP313(0x1f);
-            DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_9);
-            //10号传感器
-            m_STP313_rev_data = ReadData_STP313(0x5E);
-            DataMapping2Control_STP313(m_STP313_rev_data, ref SensingControl_10);
-            InitSensing_STP313(0x03);
-            System.Threading.Thread.Sleep(30);
-            // 180ms
-            m_STP318_rev_data = ReadData_STP318(0x8E);
-            DataMapping2Control_STP318(m_STP318_rev_data, ref textBox6, ref label27);
-            m_STP318_rev_data = ReadData_STP318(0x0D);
-            DataMapping2Control_STP318(m_STP318_rev_data, ref textBox7, ref label28);
-            m_STP318_rev_data = ReadData_STP318(0x4C);
-            DataMapping2Control_STP318(m_STP318_rev_data, ref textBox8, ref label29);
+                this.label79.Text = TimeErr.ToString() + "ms";
+            }
         }
-
+        
+        private void test2(ref LIN_STP313_ReadData[] ts)
+        {
+            LRU_STP_Test m_test = new LRU_STP_Test(LRU_ScheduleTime);
+            this.Invoke(m_test , new object[] { ts });
+        }
         //CAN 接收线程函数
-        public static void CallToCANReceiveThread()
+        public void CallToCANReceiveThread()
         {
-            while(true)
+            while (true)
             {
                 try
                 {
-                    //CAN0_ReceiveFunction();
-                    //CAN1_ReceiveFunction();
-                    //Thread.Sleep(500);
-                    Console.WriteLine("Thread Test!");
+                    test();
+                    test2(ref m_LIN_STP313_ReadData);
+                    //this.LRU_ScheduleTime(ref this.m_LIN_STP313_ReadData);
+                    //this.Invoke(LRU_STP_Test, DELEGATEMESSAGE);
+                    //test(ref m_LIN_STP313_ReadData);
+                    Thread.Sleep(30);
                 }
                 catch (ThreadAbortException e)
                 {
@@ -880,9 +945,7 @@ namespace APA
         public Form1()
         {
             InitializeComponent();
-            //ThreadStart childref = new ThreadStart(CallToCANReceiveThread);
-            //Thread childThread = new Thread(childref);
-            //childThread.Start();
+
         }
 
         private void Form1_Load(object sender, EventArgs e)
@@ -1053,7 +1116,7 @@ namespace APA
         //Lin设备扫描
         private void button7_Click(object sender, EventArgs e)
         {
-            Int32 DevNum;
+            
             //扫描查找设备
             DevNum = usb_device.USB_ScanDevice(DevHandles);
             if (DevNum <= 0)
@@ -1062,12 +1125,15 @@ namespace APA
             }
             else
             {
-                if(!comboBox1.Items.Contains(DevHandles[0]))
+                for(int i=0;i< DevNum;i++)
                 {
-                    comboBox1.Items.Add(DevHandles[0]);
-                    comboBox1.SelectedIndex = 0;
-                }             
-                Console.WriteLine("Have {0} device connected!", DevNum);
+                    if (!comboBox1.Items.Contains(DevHandles[i]))
+                    {
+                        comboBox1.Items.Add(DevHandles[i]);
+                        
+                    }
+                }
+                comboBox1.SelectedIndex = 0;
             }
         }
         //Lin 设备连接
@@ -1075,53 +1141,54 @@ namespace APA
         {
             bool state;
             Int32 ret;
-            
-            DevHandle = DevHandles[0];
-            usb_device.DEVICE_INFO DevInfo = new usb_device.DEVICE_INFO();
-            //打开设备
-            state = usb_device.USB_OpenDevice(DevHandle);
-            if (!state)
+            for(int i=0;i < DevNum;i++)
             {
-                MessageBox.Show("Open device error!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-                return;
-            }
-            else
-            {
-                button8.BackColor = Color.Green;
-            }
-            //获取固件信息
-            StringBuilder FuncStr = new StringBuilder(256);
-            state = usb_device.DEV_GetDeviceInfo(DevHandle, ref DevInfo, FuncStr);
-            if (!state)
-            {
-                MessageBox.Show("Get device infomation error!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-                return;
-            }
-            else
-            {
-                //Console.WriteLine("Firmware Info:");
-                //Console.WriteLine("    Name:" + Encoding.Default.GetString(DevInfo.FirmwareName));
-                //Console.WriteLine("    Build Date:" + Encoding.Default.GetString(DevInfo.BuildDate));
-                //Console.WriteLine("    Firmware Version:v{0}.{1}.{2}", (DevInfo.FirmwareVersion >> 24) & 0xFF, (DevInfo.FirmwareVersion >> 16) & 0xFF, DevInfo.FirmwareVersion & 0xFFFF);
-                //Console.WriteLine("    Hardware Version:v{0}.{1}.{2}", (DevInfo.HardwareVersion >> 24) & 0xFF, (DevInfo.HardwareVersion >> 16) & 0xFF, DevInfo.HardwareVersion & 0xFFFF);
-                //Console.WriteLine("    Functions:" + DevInfo.Functions.ToString("X8"));
-                //Console.WriteLine("    Functions String:" + FuncStr);
-            }
-            //初始化配置LIN
-            USB2LIN.LIN_CONFIG LINConfig = new USB2LIN.LIN_CONFIG();
-            LINConfig.BaudRate = 19200;
-            LINConfig.BreakBits = USB2LIN.LIN_BREAK_BITS_10;
-            LINConfig.CheckMode = USB2LIN.LIN_CHECK_MODE_EXT;
-            LINConfig.MasterMode = USB2LIN.LIN_MASTER;
-            ret = USB2LIN.LIN_Init(DevHandle, LINIndex, ref LINConfig);
-            if (ret != USB2LIN.LIN_SUCCESS)
-            {
-                MessageBox.Show("Config LIN failed!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-                return;
-            }
-            else
-            {
-                Console.WriteLine("Config LIN Success!");
+                usb_device.DEVICE_INFO DevInfo = new usb_device.DEVICE_INFO();
+                //打开设备
+                state = usb_device.USB_OpenDevice(DevHandles[i]);
+                if (!state)
+                {
+                    MessageBox.Show("Open device error!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                    return;
+                }
+                else
+                {
+                    button8.BackColor = Color.Green;
+                }
+                //获取固件信息
+                StringBuilder FuncStr = new StringBuilder(256);
+                state = usb_device.DEV_GetDeviceInfo(DevHandles[i], ref DevInfo, FuncStr);
+                if (!state)
+                {
+                    MessageBox.Show("Get device infomation error!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                    return;
+                }
+                else
+                {
+                    //Console.WriteLine("Firmware Info:");
+                    //Console.WriteLine("    Name:" + Encoding.Default.GetString(DevInfo.FirmwareName));
+                    //Console.WriteLine("    Build Date:" + Encoding.Default.GetString(DevInfo.BuildDate));
+                    //Console.WriteLine("    Firmware Version:v{0}.{1}.{2}", (DevInfo.FirmwareVersion >> 24) & 0xFF, (DevInfo.FirmwareVersion >> 16) & 0xFF, DevInfo.FirmwareVersion & 0xFFFF);
+                    //Console.WriteLine("    Hardware Version:v{0}.{1}.{2}", (DevInfo.HardwareVersion >> 24) & 0xFF, (DevInfo.HardwareVersion >> 16) & 0xFF, DevInfo.HardwareVersion & 0xFFFF);
+                    //Console.WriteLine("    Functions:" + DevInfo.Functions.ToString("X8"));
+                    //Console.WriteLine("    Functions String:" + FuncStr);
+                }
+                //初始化配置LIN
+                USB2LIN.LIN_CONFIG LINConfig = new USB2LIN.LIN_CONFIG();
+                LINConfig.BaudRate = 19200;
+                LINConfig.BreakBits = USB2LIN.LIN_BREAK_BITS_10;
+                LINConfig.CheckMode = USB2LIN.LIN_CHECK_MODE_EXT;
+                LINConfig.MasterMode = USB2LIN.LIN_MASTER;
+                ret = USB2LIN.LIN_Init(DevHandles[i], LINIndex, ref LINConfig);
+                if (ret != USB2LIN.LIN_SUCCESS)
+                {
+                    MessageBox.Show("Config LIN failed!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                    return;
+                }
+                else
+                {
+                    Console.WriteLine("Config LIN Success!");
+                }
             }
         }
 
@@ -1149,10 +1216,10 @@ namespace APA
                 FilePath = localFilePath.Substring(0, localFilePath.LastIndexOf("\\"));
                 //获取文件名，不带路径
                 fileNameExt = localFilePath.Substring(localFilePath.LastIndexOf("\\") + 1);
-                //给文件名前加上时间
-                newFileName = DateTime.Now.ToString("yyyyMMddHHmmss") +"_"+ textBox34.Text + "_" + fileNameExt;
+                ////给文件名前加上时间
+                //newFileName = DateTime.Now.ToString("yyyyMMddHHmmss") +"_"+ textBox34.Text + "_" + fileNameExt;
 
-                DataSave = new StreamWriter(FilePath + "\\" + newFileName, true, Encoding.ASCII);
+                //DataSave = new StreamWriter(FilePath + "\\" + newFileName, true, Encoding.ASCII);
                 //DataSave = new StreamWriter(saveFileDialog1.FileName, true, Encoding.ASCII);
             }
         }
@@ -1171,6 +1238,79 @@ namespace APA
                 cf.Show();
             }
         }
+
+        /// <summary>
+        /// STP 313 传感器的更新周期测试
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void button14_Click(object sender, EventArgs e)
+        {
+            double distance;
+            TimeErr = 0;
+            timeBeginPeriod(1);
+            InitSensing_STP313(DevHandles[0], 0x01);
+            SystemTime = timeGetTime();
+            while (TimeErr < 300)
+            {
+                LIN_STP313_ReadData test_s = ReadData_STP313(DevHandles[0], 0x1f);
+                distance = (test_s.TOF1 - 110) / 58.0;
+                listBox2.Items.Add(distance);
+
+                TimeErr = timeGetTime() - SystemTime ;
+
+            }
+            timeEndPeriod(1);
+        }
+
+
+        private void button15_Click(object sender, EventArgs e)
+        {
+            listBox2.Items.Clear();
+        }
+
+        /// <summary>
+        /// 保存CAN总线的相关数据
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void button13_Click(object sender, EventArgs e)
+        {
+            if (!DataSaveStatus)
+            {
+                VehicleDistance = 0.0;
+                timer2.Enabled = true;
+                timeBeginPeriod(1);
+                DataSaveStatus = true;
+            }
+            else
+            {
+                timer2.Enabled = false;
+                timeEndPeriod(1);
+                DataSave.Close();
+                DataSaveStatus = false;
+            }
+            button13.Text = DataSaveStatus ? "取消保存" : "开始保存";
+        }
+
+        private void timer2_Tick(object sender, EventArgs e)
+        {
+            SystemTime = timeGetTime();
+            if (LastSystemTime == 0)
+            {
+                TimeErr = 0;
+            }
+            else
+            {
+                TimeErr = SystemTime - LastSystemTime;
+            }
+            LastSystemTime = SystemTime;
+
+            label79.Text = TimeErr.ToString() + "ms";
+            VehicleDistance += VehicleSpeed * TimeErr / 3600.0;
+            DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:D} {5:D}\r\n",
+                SystemTime, TimeErr, VehicleDistance, VehicleSpeed,VehicleAngle, VehicleAgularVelocity);
+        }
         #endregion
         //CAN接收测试
         private void button6_Click(object sender, EventArgs e)
@@ -1184,31 +1324,31 @@ namespace APA
             LIN_STP318_ReadData m_STP318_test_data = new LIN_STP318_ReadData();
             LIN_STP313_ReadData m_STP313_test_data = new LIN_STP313_ReadData();
 
-            InitSensing_STP318(0x01, 0x01);
-            System.Threading.Thread.Sleep(30);
-            m_STP318_test_data = ReadData_STP318(0xcf);
+            InitSensing_STP318(DevHandles[0], 0x01, 0x01);
+            System.Threading.Thread.Sleep(20);
+            m_STP318_test_data = ReadData_STP318(DevHandles[0], 0xcf);
             DataMapping2Control_STP318(m_STP318_test_data, ref textBox1, ref label26);
 
-            InitSensing_STP318(0x02, 0x02);
-            System.Threading.Thread.Sleep(30);
-            m_STP318_test_data = ReadData_STP318(0x8E);
+            InitSensing_STP318(DevHandles[0], 0x02, 0x02);
+            System.Threading.Thread.Sleep(20);
+            m_STP318_test_data = ReadData_STP318(DevHandles[0], 0x8E);
             DataMapping2Control_STP318(m_STP318_test_data, ref textBox6, ref label27);
 
-            InitSensing_STP318(0x04, 0x04);
-            System.Threading.Thread.Sleep(30);
-            m_STP318_test_data = ReadData_STP318(0x0D);
+            InitSensing_STP318(DevHandles[0], 0x04, 0x04);
+            System.Threading.Thread.Sleep(20);
+            m_STP318_test_data = ReadData_STP318(DevHandles[0], 0x0D);
             DataMapping2Control_STP318(m_STP318_test_data, ref textBox7, ref label28);
 
-            InitSensing_STP318(0x08, 0x08);
-            System.Threading.Thread.Sleep(30);
-            m_STP318_test_data = ReadData_STP318(0x4C);
+            InitSensing_STP318(DevHandles[0], 0x08, 0x08);
+            System.Threading.Thread.Sleep(20);
+            m_STP318_test_data = ReadData_STP318(DevHandles[0], 0x4C);
             DataMapping2Control_STP318(m_STP318_test_data, ref textBox8, ref label29);
 
-            InitSensing_STP313(0x03);
-            System.Threading.Thread.Sleep(70);
-            m_STP313_test_data = ReadData_STP313(0x1f);
+            InitSensing_STP313(DevHandles[0], 0x03);
+            System.Threading.Thread.Sleep(40);
+            m_STP313_test_data = ReadData_STP313(DevHandles[0], 0x1f);
             DataMapping2Control_STP313(m_STP313_test_data, ref SensingControl_9);
-            m_STP313_test_data = ReadData_STP313(0x5E);
+            m_STP313_test_data = ReadData_STP313(DevHandles[0], 0x5E);
             DataMapping2Control_STP313(m_STP313_test_data, ref SensingControl_10);
         }
 
@@ -1216,17 +1356,25 @@ namespace APA
         {
             //GetTickCount();
             //Stopwatch cs = new Stopwatch();
-            //long t = cs.ElapsedTicks;
-            uint time_temp = timeGetTime();
-            uint time_err = time_temp - last_time;
-            last_time = time_temp;
 
+            SystemTime = timeGetTime();
+            if (LastSystemTime == 0)
+            {
+                TimeErr = 0;
+            }
+            else
+            {
+                TimeErr = SystemTime - LastSystemTime;
+            }
+            LastSystemTime = SystemTime;
             LRU_ScheduleTime(ref m_LIN_STP313_ReadData);
-            //TimeScheduleStatus1();
-                        
-            label79.Text = time_err.ToString() + "ms";
+
+            label79.Text = TimeErr.ToString() + "ms";
             double SensingData9 = (m_LIN_STP313_ReadData[0].TOF1 - 110) / 58.0;
             double SensingData10 = (m_LIN_STP313_ReadData[1].TOF1 - 110) / 58.0;
+
+            //double SensingData11 = (m_LIN_STP313_ReadData[2].TOF1 - 110) / 58.0;
+            //double SensingData12 = (m_LIN_STP313_ReadData[3].TOF1 - 110) / 58.0;
 
             double SensingData9_Sencond = (m_LIN_STP313_ReadData[0].TOF2 - 110) / 58.0;
             double SensingData9_Level = m_LIN_STP313_ReadData[0].Level * 3.3 / 255;
@@ -1236,11 +1384,12 @@ namespace APA
             double SensingData10_Level = m_LIN_STP313_ReadData[1].Level * 3.3 / 255;
             uint SensingData10_Width = (uint)(m_LIN_STP313_ReadData[1].Width * 16);
 
-            VehicleDistance += VehicleSpeed * time_err / 3600.0;
-            DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:R16} {5:R16} {6:R16} {7:D} {8:R16} {9:R16} {10:D}\r\n", 
-                time_temp,time_err, SensingData9, SensingData10, VehicleDistance,
+            VehicleDistance += VehicleSpeed * TimeErr / 3600.0;
+            DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:R16} {5:R16} {6:R16} {7:D} {8:R16} {9:R16} {10:D} {11:D} {12:R16}\r\n",
+                SystemTime, TimeErr, SensingData9, SensingData10, VehicleDistance,
                 SensingData9_Sencond, SensingData9_Level, SensingData9_Width,
-                SensingData10_Sencond, SensingData10_Level, SensingData10_Width);
+                SensingData10_Sencond, SensingData10_Level, SensingData10_Width,
+                VehicleAngle, VehicleSpeed);
             
         }
 
@@ -1249,6 +1398,13 @@ namespace APA
         {
             if(!DataSaveStatus)
             {
+                //ThreadStart childref = new ThreadStart(CallToCANReceiveThread);
+                //Thread childThread = new Thread(childref);
+                //childThread.IsBackground = true;
+                //childThread.Start();
+                //给文件名前加上时间
+                newFileName = DateTime.Now.ToString("yyyyMMddHHmmss") + "_" + textBox34.Text + "_" + fileNameExt;
+                DataSave = new StreamWriter(FilePath + "\\" + newFileName, true, Encoding.ASCII);
                 VehicleDistance = 0.0;
                 timer1.Enabled = true;
                 timeBeginPeriod(1);
@@ -1263,6 +1419,7 @@ namespace APA
 
             }
             button12.Text = DataSaveStatus ? "取消保存" : "开始保存";
+            button12.BackColor = DataSaveStatus ? Color.Green : Color.Red;
 
         }
     }
