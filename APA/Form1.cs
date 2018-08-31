@@ -809,12 +809,13 @@ namespace APA
                 LIN_STP313_data[2 * i + 1] = ReadData_STP313(DevHandles[i], 0x5E);
             }
 
+            for(int i=0; i< DevNum;i++)
+            {
+                InitSensing_STP313(DevHandles[i], 0x03);
+            }
 
-            InitSensing_STP313(DevHandles[0], 0x03);
-            //InitSensing_STP313(DevHandles[1], 0x03);
-
-            DataMapping2Control_STP313(LIN_STP313_data[0], ref SensingControl_9);
-            DataMapping2Control_STP313(LIN_STP313_data[1], ref SensingControl_10);
+            //DataMapping2Control_STP313(LIN_STP313_data[0], ref SensingControl_9);
+            //DataMapping2Control_STP313(LIN_STP313_data[1], ref SensingControl_10);
             //System.Threading.Thread.Sleep(20);
         }
 
@@ -892,13 +893,12 @@ namespace APA
         //}
 
         private delegate void FlushClient(); //代理
-        UInt32 count=0;
-        private void test()
+        private void SamplingCycleShow()
         {
             if(this.label79.InvokeRequired)
             {
-                FlushClient fc = new FlushClient(test);
-                this.Invoke(fc);
+                FlushClient scs = new FlushClient(SamplingCycleShow);
+                this.Invoke(scs);
             }
             else
             {
@@ -1354,9 +1354,6 @@ namespace APA
 
         private void timer1_Tick(object sender, EventArgs e)
         {
-            //GetTickCount();
-            //Stopwatch cs = new Stopwatch();
-
             SystemTime = timeGetTime();
             if (LastSystemTime == 0)
             {
