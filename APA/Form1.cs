@@ -147,6 +147,25 @@ public struct LIN_STP313_ReadData
     public UInt16 TOF2;
     public byte status;
 }
+
+public struct VehicleImformation
+{
+    public double Speed;
+    public double Displacement;
+    public Int16 TargetSteeringWheelAngle;
+    public Int16 ActualSteeringWheelAngle;
+    public UInt16 SteeringWheelAgularVelocity;
+    public double SteeringWheelTorque;
+    public byte ECU_status;
+    public byte CommunicationStatus;
+}
+
+public struct TimeStruct
+{
+    public UInt64 SystemTime;
+    public UInt64 LastSystemTime;
+    public UInt64 TimeErr;
+}
 #endregion
 
 
@@ -228,7 +247,7 @@ namespace APA
                         0x1C002C, 0x1600B3, 0x1C00E0,
                         0x1C01C1
                 };
-        
+
 
         const UInt32 STATUS_OK = 1;
 
@@ -240,24 +259,23 @@ namespace APA
 
         UInt32[] m_arrdevtype = new UInt32[20];
 
-        string[] DeviceType = new string[2]{ "USBCAN_2E_U", "USBCAN_E_U" };
-        string[] BaudRate = new string[10] { "1000kbps","800kbps","500kbps","250kbps","125kbps","100kbps","50kbps","20kbps","10kbps","5kbps"};
-        string[] ECU_Status = new string[8] { "待机模式","自动驾驶模式","未知", "未知", "手动模式", "手动介入恢复模式", "警告模式", "错误模式" };
+        string[] DeviceType = new string[2] { "USBCAN_2E_U", "USBCAN_E_U" };
+        string[] BaudRate = new string[10] { "1000kbps", "800kbps", "500kbps", "250kbps", "125kbps", "100kbps", "50kbps", "20kbps", "10kbps", "5kbps" };
+        string[] ECU_Status = new string[8] { "待机模式", "自动驾驶模式", "未知", "未知", "手动模式", "手动介入恢复模式", "警告模式", "错误模式" };
         string[] ComunicationStatus = new string[2] { "通信正常", "通信异常" };
         #endregion
 
         #region LIN Device Configure relation varibale
         //Lin设备相关参数
         Int32[] DevHandles = new Int32[20];
-        Int32 DevHandle = 0;
         Byte LINIndex = 0;
         Int32 DevNum;
         #endregion
 
         #region Sensing Relation Control Status Variable
-        string[] SensingStatus = new string[5] { "Blockage","Noise Error","Hardware Fault","Communication Error","Proximity State"};
-
-        TextBox[] SensingControl_9  = new TextBox[5];
+        string[] SensingStatus = new string[5] { "Blockage", "Noise Error", "Hardware Fault", "Communication Error", "Proximity State" };
+        string[] SamplingModle = new string[2] { "两侧4组采集", "12组轮询采集" };
+        TextBox[] SensingControl_9 = new TextBox[5];
         TextBox[] SensingControl_10 = new TextBox[5];
         TextBox[] SensingControl_11 = new TextBox[5];
         TextBox[] SensingControl_12 = new TextBox[5];
@@ -272,7 +290,10 @@ namespace APA
         static extern void timeBeginPeriod(int t);
         [DllImport("winmm")]
         static extern void timeEndPeriod(int t);
-        UInt64 SystemTime, LastSystemTime,TimeErr;
+        UInt64 SystemTime, LastSystemTime, TimeErr;
+        TimeStruct CanReceiveTime = new TimeStruct();
+        TimeStruct UltrasonicSamplingTime = new TimeStruct();
+        TimeStruct FileSaveTime = new TimeStruct();
         #endregion
 
         #region File Operation Relation Variable
@@ -282,89 +303,36 @@ namespace APA
         #endregion
 
         #region Vehicle Relation Variable
-        double VehicleSpeed = 0, VehicleDistance = 0;
-        Int16  VehicleAngle = 0;
-        UInt16 VehicleAgularVelocity = 0;
+        VehicleImformation m_VehicleImformation = new VehicleImformation();
         #endregion
 
-        
         ChartShowForm cf = new ChartShowForm();
-        public delegate void LRU_STP_Test(ref LIN_STP313_ReadData[] LIN_STP313_data);
-
         #region 函数方法
         /// <summary>
         /// CAN0 Receive Function
         /// </summary>
-        unsafe public void CAN0_ReceiveFunction()
+        unsafe public void CAN0_ReceiveFunction(ref VehicleImformation m_vehicle)
         {
             UInt32 res = new UInt32();
             res = VCI_GetReceiveNum(m_devtype, m_devind, m_canind);
             if (res == 0)
                 return;
-            //res = VCI_Receive(m_devtype, m_devind, m_canind, ref m_recobj[0],50, 100);
-
-            /////////////////////////////////////
-            //UInt32 con_maxlen = 50;
             IntPtr pt = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(VCI_CAN_OBJ)) * (Int32)res);
 
-
             res = VCI_Receive(m_devtype, m_devind, m_canind, pt, res, 100);
-            ////////////////////////////////////////////////////////
 
-            String str = "";
             for (UInt32 i = 0; i < res; i++)
             {
                 VCI_CAN_OBJ obj = (VCI_CAN_OBJ)Marshal.PtrToStructure((IntPtr)((UInt32)pt + i * Marshal.SizeOf(typeof(VCI_CAN_OBJ))), typeof(VCI_CAN_OBJ));
 
-                str = "接收到数据: ";
-                str += "  帧ID:0x" + System.Convert.ToString((Int32)obj.ID, 16);
-                str += "  帧格式:";
-                if (obj.RemoteFlag == 0)
-                    str += "数据帧 ";
-                else
-                    str += "远程帧 ";
-                if (obj.ExternFlag == 0)
-                    str += "标准帧 ";
-                else
-                    str += "扩展帧 ";
-
-                //////////////////////////////////////////
-                if (obj.RemoteFlag == 0)
-                {
-                    str += "数据: ";
-                    byte len = (byte)(obj.DataLen % 9);
-                    byte j = 0;
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[0], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[1], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[2], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[3], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[4], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[5], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[6], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[7], 16);
-
-                }
-                //listBox1.Items.Add(str);
-                //listBox1.SelectedIndex = listBox1.Items.Count - 1;
                 if (obj.ID == 0x0C1)
                 {
-                    VehicleAngle = (Int16)((UInt16)(obj.Data[2] << 8 | obj.Data[3]) * 0.1 - 780);
-                    VehicleAgularVelocity = (UInt16)(obj.Data[1] * 25);
-                    label11.Text = ECU_Status[obj.Data[0]];//ECU状态
-                    label12.Text = ComunicationStatus[obj.Data[5]];
-                    textBox2.Text = Convert.ToString(VehicleAgularVelocity) + "°/s";//转角速度
-                    textBox3.Text = Convert.ToString((obj.Data[4] - 128) * 0.07) + " Nm";//扭矩
-                    
-                    textBox4.Text = Convert.ToString(VehicleAngle) + "°";//目标角度
-                    textBox5.Text = Convert.ToString((Int16)((UInt16)(obj.Data[6] << 8 | obj.Data[7]) * 0.1 - 780)) + "°";//实际角度
+                    m_vehicle.ActualSteeringWheelAngle = (Int16)((UInt16)(obj.Data[2] << 8 | obj.Data[3]) * 0.1 - 780);//实际角度
+                    m_vehicle.TargetSteeringWheelAngle = (Int16)((UInt16)(obj.Data[6] << 8 | obj.Data[7]) * 0.1 - 780);//目标角度
+                    m_vehicle.SteeringWheelAgularVelocity = (UInt16)(obj.Data[1] * 25);//转角速度
+                    m_vehicle.SteeringWheelTorque = (obj.Data[4] - 128) * 0.07;//扭矩
+                    m_vehicle.ECU_status = obj.Data[0];//ECU状态
+                    m_vehicle.CommunicationStatus = obj.Data[5];//通信状态
                 }
             }
             Marshal.FreeHGlobal(pt);
@@ -373,78 +341,61 @@ namespace APA
         /// <summary>
         /// CAN1 Receive Function
         /// </summary>
-        unsafe void CAN1_ReceiveFunction()
+        unsafe void CAN1_ReceiveFunction(ref VehicleImformation m_vehicle)
         {
             UInt32 res = new UInt32();
             res = VCI_GetReceiveNum(m_devtype, m_devind, 1);
             if (res == 0)
                 return;
-            //res = VCI_Receive(m_devtype, m_devind, m_canind, ref m_recobj[0],50, 100);
-
-            /////////////////////////////////////
-            //UInt32 con_maxlen = 50;
             IntPtr pt = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(VCI_CAN_OBJ)) * (Int32)res);
 
-
             res = VCI_Receive(m_devtype, m_devind, 1, pt, res, 100);
-            ////////////////////////////////////////////////////////
 
-            String str = "";
+            //String str = "";
             for (UInt32 i = 0; i < res; i++)
             {
                 VCI_CAN_OBJ obj = (VCI_CAN_OBJ)Marshal.PtrToStructure((IntPtr)((UInt32)pt + i * Marshal.SizeOf(typeof(VCI_CAN_OBJ))), typeof(VCI_CAN_OBJ));
-
-                str = "接收到数据: ";
-                str += "  帧ID:0x" + System.Convert.ToString((Int32)obj.ID, 16);
-                str += "  帧格式:";
-                if (obj.RemoteFlag == 0)
-                    str += "数据帧 ";
-                else
-                    str += "远程帧 ";
-                if (obj.ExternFlag == 0)
-                    str += "标准帧 ";
-                else
-                    str += "扩展帧 ";
-
-                //////////////////////////////////////////
-                if (obj.RemoteFlag == 0)
-                {
-                    str += "数据: ";
-                    byte len = (byte)(obj.DataLen % 9);
-                    byte j = 0;
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[0], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[1], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[2], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[3], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[4], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[5], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[6], 16);
-                    if (j++ < len)
-                        str += " " + System.Convert.ToString(obj.Data[7], 16);
-
-                }
-                //listBox1.Items.Add(str);
-                //listBox1.SelectedIndex = listBox1.Items.Count - 1;
                 if (obj.ID == 0x300)
                 {
-                    VehicleSpeed = (UInt16)(obj.Data[0] << 8 | obj.Data[1]) / 15.4583;
-                    textBox33.Text = Convert.ToString(VehicleSpeed) + "km/h";//实际角度
-                    //label11.Text = ECU_Status[obj.Data[0]];//ECU状态
-                    //label12.Text = ComunicationStatus[obj.Data[5]];
-                    //textBox2.Text = Convert.ToString(obj.Data[1] * 25) + "°/s";//转角速度
-                    //textBox3.Text = Convert.ToString((obj.Data[4] - 128) * 0.07) + " Nm";//扭矩
-                    //textBox4.Text = Convert.ToString((Int16)((UInt16)(obj.Data[2] << 8 | obj.Data[3]) * 0.1 - 780)) + "°";//目标角度
-                    //textBox5.Text = Convert.ToString((Int16)((UInt16)(obj.Data[6] << 8 | obj.Data[7]) * 0.1 - 780)) + "°";//实际角度
+                    CanReceiveTime.SystemTime = timeGetTime();
+                    if(CanReceiveTime.LastSystemTime == 0)
+                    {
+                        CanReceiveTime.TimeErr = 0;
+                    }
+                    else
+                    {
+                        CanReceiveTime.TimeErr = CanReceiveTime.SystemTime - CanReceiveTime.LastSystemTime;     
+                    }
+                    CanReceiveTime.LastSystemTime = CanReceiveTime.SystemTime;
+
+                    m_vehicle.Speed = (UInt16)(obj.Data[0] << 8 | obj.Data[1]) / 15.4583;//车速
+                    m_vehicle.Displacement += m_vehicle.Speed * CanReceiveTime.TimeErr / 3600.0;
+                    if (DataSaveStatus)
+                    {
+                        DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:D} {5:D} {6:R16} {7:R16} {8:R16} {9:R16} {10:D} {11:D} \r\n",
+                        CanReceiveTime.SystemTime, CanReceiveTime.TimeErr,
+                        m_VehicleImformation.Speed, m_VehicleImformation.Displacement,
+                        m_VehicleImformation.SteeringWheelAgularVelocity, m_VehicleImformation.ActualSteeringWheelAngle,
+                        m_LIN_STP313_ReadData[0].TOF1 / 58.0, m_LIN_STP313_ReadData[1].TOF1 / 58.0,
+                        m_LIN_STP313_ReadData[2].TOF1 / 58.0, m_LIN_STP313_ReadData[3].TOF1 / 58.0,
+                        UltrasonicSamplingTime.SystemTime, UltrasonicSamplingTime.TimeErr);
+                    }
                 }
             }
             Marshal.FreeHGlobal(pt);
+        }
+
+        private void VehicleInformationShow(VehicleImformation m_Vehicle)
+        {
+            label11.Text = ECU_Status[m_Vehicle.ECU_status];//ECU状态
+            label12.Text = ComunicationStatus[m_Vehicle.CommunicationStatus];
+            textBox2.Text = Convert.ToString(m_Vehicle.SteeringWheelAgularVelocity) + "°/s";//转角速度
+            textBox3.Text = Convert.ToString(m_Vehicle.SteeringWheelTorque) + " Nm";//扭矩
+
+            textBox4.Text = Convert.ToString(m_Vehicle.TargetSteeringWheelAngle) + "°";//目标角度
+            textBox5.Text = Convert.ToString(m_Vehicle.ActualSteeringWheelAngle) + "°";//实际角度
+            textBox33.Text = Convert.ToString(m_Vehicle.Speed) + " km/h";//实际速度
+            textBox35.Text = Convert.ToString(m_Vehicle.Displacement) + " m";//实际位移
         }
         /// <summary>
         /// 地盘CAN发送函数
@@ -702,7 +653,7 @@ namespace APA
             }
             else
             {
-                //Console.WriteLine("LIN write data success!\n");
+                Console.WriteLine("LIN write data success!\n");
             }
             //延时
             //System.Threading.Thread.Sleep(20);
@@ -759,8 +710,8 @@ namespace APA
         /// <param name="lb"></param>
         void DataMapping2Control_STP313(LIN_STP313_ReadData dat, ref TextBox[] tx)
         {
-            tx[0].Text = ((dat.TOF1 - 110) / 58.0).ToString();
-            tx[1].Text = ((dat.TOF2 - 110) / 58.0).ToString();
+            tx[0].Text = ((dat.TOF1 ) / 58.0).ToString();
+            tx[1].Text = ((dat.TOF2 ) / 58.0).ToString();
             tx[2].Text = (dat.Width * 16).ToString();
             tx[3].Text = (dat.Level * 3.3 / 255).ToString();
 
@@ -813,10 +764,6 @@ namespace APA
             {
                 InitSensing_STP313(DevHandles[i], 0x03);
             }
-
-            //DataMapping2Control_STP313(LIN_STP313_data[0], ref SensingControl_9);
-            //DataMapping2Control_STP313(LIN_STP313_data[1], ref SensingControl_10);
-            //System.Threading.Thread.Sleep(20);
         }
 
         //void TimeScheduleStatus1()
@@ -892,53 +839,7 @@ namespace APA
         //    DataMapping2Control_STP318(m_STP318_rev_data, ref textBox8, ref label29);
         //}
 
-        private delegate void FlushClient(); //代理
-        private void SamplingCycleShow()
-        {
-            if(this.label79.InvokeRequired)
-            {
-                FlushClient scs = new FlushClient(SamplingCycleShow);
-                this.Invoke(scs);
-            }
-            else
-            {
-                SystemTime = timeGetTime();
-                TimeErr = SystemTime - LastSystemTime;
-                LastSystemTime = SystemTime;
-
-                this.label79.Text = TimeErr.ToString() + "ms";
-            }
-        }
-        
-        private void test2(ref LIN_STP313_ReadData[] ts)
-        {
-            LRU_STP_Test m_test = new LRU_STP_Test(LRU_ScheduleTime);
-            this.Invoke(m_test , new object[] { ts });
-        }
-        //CAN 接收线程函数
-        public void CallToCANReceiveThread()
-        {
-            while (true)
-            {
-                try
-                {
-                    test();
-                    test2(ref m_LIN_STP313_ReadData);
-                    //this.LRU_ScheduleTime(ref this.m_LIN_STP313_ReadData);
-                    //this.Invoke(LRU_STP_Test, DELEGATEMESSAGE);
-                    //test(ref m_LIN_STP313_ReadData);
-                    Thread.Sleep(30);
-                }
-                catch (ThreadAbortException e)
-                {
-                    Console.WriteLine("Thread Abort Exception");
-                }
-                //finally
-                //{
-                //    Console.WriteLine("Couldn't catch the Thread Exception");
-                //}
-            }
-        }
+ 
         #endregion
 
         #region 控件事件
@@ -982,6 +883,11 @@ namespace APA
             SensingControl_11 = new TextBox[5] { textBox23, textBox24, textBox25, textBox26, textBox27 };
             SensingControl_12 = new TextBox[5] { textBox28, textBox29, textBox30, textBox31, textBox32 };
 
+            for(i=0;i<2;i++)
+            {
+                comboBox2.Items.Add(SamplingModle[i]);
+            }
+            comboBox2.SelectedIndex = 0;
         }
 
         unsafe private void button_Connect_Click(object sender, EventArgs e)
@@ -1064,7 +970,6 @@ namespace APA
             }
             button_Connect.Text = m_bOpen == 1 ? "断开" : "连接";
             button_Connect.BackColor = m_bOpen == 1 ? Color.Green : Color.Red;
-            timer_rev.Enabled = m_bOpen == 1 ? true : false;
         }
 
         private void button_StartCan_Click(object sender, EventArgs e)
@@ -1073,6 +978,10 @@ namespace APA
                 return;
             VCI_StartCAN(m_devtype, m_devind, m_canind);
             VCI_StartCAN(m_devtype, m_devind, 1);
+            ThreadStart CANTreadChild = new ThreadStart(CallToCANReceiveThread);
+            Thread m_CanReceiveChildThread = new Thread(CANTreadChild);
+            m_CanReceiveChildThread.IsBackground = true;
+            m_CanReceiveChildThread.Start();
         }
 
         private void button_Reset_Click(object sender, EventArgs e)
@@ -1190,10 +1099,14 @@ namespace APA
                     Console.WriteLine("Config LIN Success!");
                 }
             }
+            ThreadStart SamplingThread = new ThreadStart(CallToUltrasonicSamplingThread);
+            Thread UltrasonicSamplingThread = new Thread(SamplingThread);
+            UltrasonicSamplingThread.IsBackground = true;
+            UltrasonicSamplingThread.Start();
         }
 
         /// <summary>
-        /// 保存路径规划
+        /// 保存路径选择
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -1204,7 +1117,7 @@ namespace APA
             saveFileDialog1.Title = "请选择要保存的文件路径";
             saveFileDialog1.FilterIndex = 2;
             saveFileDialog1.DefaultExt = "txt";
-            saveFileDialog1.FileName = "data.txt";
+            saveFileDialog1.FileName = "Data.txt";
             saveFileDialog1.RestoreDirectory = true;
             saveFileDialog1.AddExtension = true;
             DialogResult dr = saveFileDialog1.ShowDialog();
@@ -1216,18 +1129,7 @@ namespace APA
                 FilePath = localFilePath.Substring(0, localFilePath.LastIndexOf("\\"));
                 //获取文件名，不带路径
                 fileNameExt = localFilePath.Substring(localFilePath.LastIndexOf("\\") + 1);
-                ////给文件名前加上时间
-                //newFileName = DateTime.Now.ToString("yyyyMMddHHmmss") +"_"+ textBox34.Text + "_" + fileNameExt;
-
-                //DataSave = new StreamWriter(FilePath + "\\" + newFileName, true, Encoding.ASCII);
-                //DataSave = new StreamWriter(saveFileDialog1.FileName, true, Encoding.ASCII);
             }
-        }
-        //CAN数据定时查询接收
-        private void timer_rev_Tick(object sender, EventArgs e)
-        {
-            CAN0_ReceiveFunction();
-            CAN1_ReceiveFunction();
         }
 
         //波形图显示
@@ -1262,56 +1164,11 @@ namespace APA
             }
             timeEndPeriod(1);
         }
-
-
         private void button15_Click(object sender, EventArgs e)
         {
             listBox2.Items.Clear();
         }
 
-        /// <summary>
-        /// 保存CAN总线的相关数据
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void button13_Click(object sender, EventArgs e)
-        {
-            if (!DataSaveStatus)
-            {
-                VehicleDistance = 0.0;
-                timer2.Enabled = true;
-                timeBeginPeriod(1);
-                DataSaveStatus = true;
-            }
-            else
-            {
-                timer2.Enabled = false;
-                timeEndPeriod(1);
-                DataSave.Close();
-                DataSaveStatus = false;
-            }
-            button13.Text = DataSaveStatus ? "取消保存" : "开始保存";
-        }
-
-        private void timer2_Tick(object sender, EventArgs e)
-        {
-            SystemTime = timeGetTime();
-            if (LastSystemTime == 0)
-            {
-                TimeErr = 0;
-            }
-            else
-            {
-                TimeErr = SystemTime - LastSystemTime;
-            }
-            LastSystemTime = SystemTime;
-
-            label79.Text = TimeErr.ToString() + "ms";
-            VehicleDistance += VehicleSpeed * TimeErr / 3600.0;
-            DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:D} {5:D}\r\n",
-                SystemTime, TimeErr, VehicleDistance, VehicleSpeed,VehicleAngle, VehicleAgularVelocity);
-        }
-        #endregion
         //CAN接收测试
         private void button6_Click(object sender, EventArgs e)
         {
@@ -1319,6 +1176,11 @@ namespace APA
             RecTestSpeedSendData();
         }
 
+        /// <summary>
+        /// 单次测试
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void button9_Click(object sender, EventArgs e)
         {
             LIN_STP318_ReadData m_STP318_test_data = new LIN_STP318_ReadData();
@@ -1352,72 +1214,195 @@ namespace APA
             DataMapping2Control_STP313(m_STP313_test_data, ref SensingControl_10);
         }
 
-        private void timer1_Tick(object sender, EventArgs e)
+        private void timer1_DataSave_Tick(object sender, EventArgs e)
         {
-            SystemTime = timeGetTime();
-            if (LastSystemTime == 0)
+            FileSaveTime.SystemTime = timeGetTime();
+            if(FileSaveTime.LastSystemTime == 0)
             {
-                TimeErr = 0;
+                FileSaveTime.TimeErr = 0;
             }
             else
             {
-                TimeErr = SystemTime - LastSystemTime;
+                FileSaveTime.TimeErr = FileSaveTime.SystemTime - FileSaveTime.LastSystemTime;
             }
-            LastSystemTime = SystemTime;
-            LRU_ScheduleTime(ref m_LIN_STP313_ReadData);
-
-            label79.Text = TimeErr.ToString() + "ms";
-            double SensingData9 = (m_LIN_STP313_ReadData[0].TOF1 - 110) / 58.0;
-            double SensingData10 = (m_LIN_STP313_ReadData[1].TOF1 - 110) / 58.0;
-
-            //double SensingData11 = (m_LIN_STP313_ReadData[2].TOF1 - 110) / 58.0;
-            //double SensingData12 = (m_LIN_STP313_ReadData[3].TOF1 - 110) / 58.0;
-
-            double SensingData9_Sencond = (m_LIN_STP313_ReadData[0].TOF2 - 110) / 58.0;
-            double SensingData9_Level = m_LIN_STP313_ReadData[0].Level * 3.3 / 255;
-            uint SensingData9_Width = (uint)(m_LIN_STP313_ReadData[0].Width * 16);
-
-            double SensingData10_Sencond = (m_LIN_STP313_ReadData[1].TOF2 - 110) / 58.0;
-            double SensingData10_Level = m_LIN_STP313_ReadData[1].Level * 3.3 / 255;
-            uint SensingData10_Width = (uint)(m_LIN_STP313_ReadData[1].Width * 16);
-
-            VehicleDistance += VehicleSpeed * TimeErr / 3600.0;
-            DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:R16} {5:R16} {6:R16} {7:D} {8:R16} {9:R16} {10:D} {11:D} {12:R16}\r\n",
-                SystemTime, TimeErr, SensingData9, SensingData10, VehicleDistance,
-                SensingData9_Sencond, SensingData9_Level, SensingData9_Width,
-                SensingData10_Sencond, SensingData10_Level, SensingData10_Width,
-                VehicleAngle, VehicleSpeed);
-            
+            FileSaveTime.LastSystemTime = FileSaveTime.SystemTime;
+            DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:D} {5:D} {6:R16} {7:R16} {8:R16} {9:R16} {10:D} {11:D} \r\n", 
+                FileSaveTime.SystemTime, FileSaveTime.TimeErr,
+                m_VehicleImformation.Speed, m_VehicleImformation.Displacement,
+                m_VehicleImformation.SteeringWheelAgularVelocity, m_VehicleImformation.ActualSteeringWheelAngle,
+                m_LIN_STP313_ReadData[0].TOF1 / 58.0, m_LIN_STP313_ReadData[1].TOF1 / 58.0,
+                m_LIN_STP313_ReadData[2].TOF1 / 58.0, m_LIN_STP313_ReadData[3].TOF1 / 58.0,
+                UltrasonicSamplingTime.SystemTime, UltrasonicSamplingTime.TimeErr);
         }
-
         //开始保存
         private void button12_Click(object sender, EventArgs e)
         {
-            if(!DataSaveStatus)
+            if (!DataSaveStatus)
             {
-                //ThreadStart childref = new ThreadStart(CallToCANReceiveThread);
-                //Thread childThread = new Thread(childref);
-                //childThread.IsBackground = true;
-                //childThread.Start();
                 //给文件名前加上时间
                 newFileName = DateTime.Now.ToString("yyyyMMddHHmmss") + "_" + textBox34.Text + "_" + fileNameExt;
                 DataSave = new StreamWriter(FilePath + "\\" + newFileName, true, Encoding.ASCII);
-                VehicleDistance = 0.0;
-                timer1.Enabled = true;
+                m_VehicleImformation.Displacement = 0.0;
+                //timer1_DataSave.Enabled = true;
                 timeBeginPeriod(1);
                 DataSaveStatus = true;
             }
             else
             {
-                timer1.Enabled = false;
+                //timer1_DataSave.Enabled = false;
                 timeEndPeriod(1);
                 DataSave.Close();
                 DataSaveStatus = false;
-
             }
             button12.Text = DataSaveStatus ? "取消保存" : "开始保存";
             button12.BackColor = DataSaveStatus ? Color.Green : Color.Red;
-
         }
+        #endregion
+
+        #region 线程相关
+        #region CAN 接收线程相关
+        private void CanReceiveCycleShow()
+        {
+            if (this.label85.InvokeRequired)
+            {
+                FlushClient scs = new FlushClient(CanReceiveCycleShow);
+                this.Invoke(scs);
+            }
+            else
+            {
+                this.label85.Text = CanReceiveTime.TimeErr.ToString() + "ms";
+            }
+        }
+        /// <summary>
+        /// 显示车辆信息委托
+        /// </summary>
+        /// <param name="sdata"></param>
+        private delegate void VehicleShow(VehicleImformation sdata);
+        private void VehicleInforShow(VehicleImformation sdata)
+        {
+            VehicleShow m_vehicle = new VehicleShow(VehicleInformationShow);
+            this.Invoke(m_vehicle, new object[] { sdata });
+        }
+        //CAN 接收线程函数
+        public void CallToCANReceiveThread()
+        {
+            while (true)
+            {
+                try
+                {
+                    CanReceiveCycleShow();
+                    CAN0_ReceiveFunction(ref m_VehicleImformation);
+                    CAN1_ReceiveFunction(ref m_VehicleImformation);
+                    VehicleInforShow(m_VehicleImformation);
+                }
+                catch (ThreadAbortException e)
+                {
+                    Console.WriteLine("Thread Abort Exception {0}", e);
+                }
+                //finally
+                //{
+                //    Console.WriteLine("Couldn't catch the Thread Exception");
+                //}
+            }
+        }
+        #endregion
+
+        #region 超声波传感器的采样线程
+        private delegate int SamplingModDeleg(ComboBox cb); //代理
+        private int GetSamplingModule(ComboBox cb)
+        {
+            if (cb.InvokeRequired)
+            {
+                SamplingModDeleg getIndex = new SamplingModDeleg(GetSamplingModule);
+                IAsyncResult ia = cb.BeginInvoke(getIndex, new object[] { cb });
+                return (int)cb.EndInvoke(ia);
+            }
+            else
+            {
+                return comboBox2.SelectedIndex;
+            }
+        }
+
+        private delegate void FlushClient();
+        private void SamplingCycleShow()
+        {
+            if (this.label79.InvokeRequired)
+            {
+                FlushClient scs = new FlushClient(SamplingCycleShow);
+                this.Invoke(scs);
+            }
+            else
+            {
+                UltrasonicSamplingTime.SystemTime = timeGetTime();
+                UltrasonicSamplingTime.TimeErr = UltrasonicSamplingTime.SystemTime - UltrasonicSamplingTime.LastSystemTime;
+                UltrasonicSamplingTime.LastSystemTime = UltrasonicSamplingTime.SystemTime;
+
+                this.label79.Text = UltrasonicSamplingTime.TimeErr.ToString() + "ms";
+            }
+        }
+        private delegate void STP313_DataMapping(LIN_STP313_ReadData dat, ref TextBox[] tx);
+        private void STP313_DataShow(LIN_STP313_ReadData show_dat, ref TextBox[] show_tx)
+        {
+            STP313_DataMapping m_STP313_DataMapping = new STP313_DataMapping(DataMapping2Control_STP313);
+            this.Invoke(m_STP313_DataMapping,new object[] { show_dat, show_tx });
+        }
+
+        private delegate void LRU_STP_Samoling(ref LIN_STP313_ReadData[] LIN_STP313_data);
+        private void LinSampling_STP_Sensings(ref LIN_STP313_ReadData[] sdata)
+        {
+            LRU_STP_Samoling m_sampling = new LRU_STP_Samoling(LRU_ScheduleTime);
+            this.Invoke(m_sampling, new object[] { sdata });
+        }
+        /// <summary>
+        /// 超声波传感器的采样线程
+        /// </summary>
+        public void CallToUltrasonicSamplingThread()
+        {
+            while (true)
+            {
+                try
+                {
+                    SamplingCycleShow();
+                    if(GetSamplingModule(comboBox2) == 0)
+                    {
+                        LinSampling_STP_Sensings(ref m_LIN_STP313_ReadData);
+                        if (DataSaveStatus)
+                        {
+                            DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:D} {5:D} {6:R16} {7:R16} {8:R16} {9:R16} {10:D} {11:D} \r\n",
+                            UltrasonicSamplingTime.SystemTime, UltrasonicSamplingTime.TimeErr,
+                            m_VehicleImformation.Speed, m_VehicleImformation.Displacement,
+                            m_VehicleImformation.SteeringWheelAgularVelocity, m_VehicleImformation.ActualSteeringWheelAngle,
+                            m_LIN_STP313_ReadData[0].TOF1 / 58.0, m_LIN_STP313_ReadData[1].TOF1 / 58.0,
+                            m_LIN_STP313_ReadData[2].TOF1 / 58.0, m_LIN_STP313_ReadData[3].TOF1 / 58.0,
+                            UltrasonicSamplingTime.SystemTime, UltrasonicSamplingTime.TimeErr);
+                        }
+                        Thread.Sleep(30);
+                        STP313_DataShow(m_LIN_STP313_ReadData[0], ref SensingControl_9);
+                        STP313_DataShow(m_LIN_STP313_ReadData[1], ref SensingControl_10);
+                        STP313_DataShow(m_LIN_STP313_ReadData[2], ref SensingControl_11);
+                        STP313_DataShow(m_LIN_STP313_ReadData[3], ref SensingControl_12);
+
+                    }
+                    else if(GetSamplingModule(comboBox2) == 1)
+                    {
+
+                    }
+                    else
+                    {
+
+                    }
+                }
+                catch (ThreadAbortException e)
+                {
+                    Console.WriteLine("Thread Abort Exception {0}",e);
+                }
+                //finally
+                //{
+                //    Console.WriteLine("Couldn't catch the Thread Exception");
+                //}
+            }
+        }
+        #endregion
+        #endregion
     }
 }
