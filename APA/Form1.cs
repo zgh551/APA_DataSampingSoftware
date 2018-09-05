@@ -200,6 +200,7 @@ namespace APA
         const int VCI_USBCAN_2E_U = 21;
         const int VCI_PCI5020U = 22;
         const int VCI_EG20T_CAN = 23;
+        const int VCI_USBCAN_4E_U = 31;
 
         [DllImport("controlcan.dll")]
         static extern UInt32 VCI_OpenDevice(UInt32 DeviceType, UInt32 DeviceInd, UInt32 Reserved);
@@ -259,7 +260,7 @@ namespace APA
 
         UInt32[] m_arrdevtype = new UInt32[20];
 
-        string[] DeviceType = new string[2] { "USBCAN_2E_U", "USBCAN_E_U" };
+        string[] DeviceType = new string[2] { "USBCAN_4E_U", "USBCAN_2E_U" };
         string[] BaudRate = new string[10] { "1000kbps", "800kbps", "500kbps", "250kbps", "125kbps", "100kbps", "50kbps", "20kbps", "10kbps", "5kbps" };
         string[] ECU_Status = new string[8] { "待机模式", "自动驾驶模式", "未知", "未知", "手动模式", "手动介入恢复模式", "警告模式", "错误模式" };
         string[] ComunicationStatus = new string[2] { "通信正常", "通信异常" };
@@ -271,33 +272,51 @@ namespace APA
         Byte LINIndex = 0;
         Int32 DevNum;
         bool LinDeviceStatus = false;
+        bool LinTreadStatus = false;
         #endregion
 
         #region Sensing Relation Control Status Variable
         string[] SensingStatus = new string[5] { "Blockage", "Noise Error", "Hardware Fault", "Communication Error", "Proximity State" };
         string[] SamplingModle = new string[2] { "两侧4组采集", "12组轮询采集" };
-        TextBox[] SensingControl_9 = new TextBox[5];
-        TextBox[] SensingControl_10 = new TextBox[5];
-        TextBox[] SensingControl_11 = new TextBox[5];
-        TextBox[] SensingControl_12 = new TextBox[5];
+
+        //LRU STP313 传感器 控件显示
+        TextBox[][] SensingControl_LRU = new TextBox[4][];
+        //SRU STP318 传感器 控件显示
+        TextBox[] SensingControl_SRU_TextBox = new TextBox[8];
+        Label[] SensingControl_SRU_Label = new Label[8];
 
         public LIN_STP313_ReadData[] m_LIN_STP313_ReadData = new LIN_STP313_ReadData[4];
         public LIN_STP318_ReadData[] m_LIN_STP318_ReadData = new LIN_STP318_ReadData[8];
 
+        //public byte[,,] SensingSendStatus = new byte[4, 2, 2]{
+        //                                                    { { 0x02, 0x07 },{ 0x08, 0x08 } },//第一次[2->tx ;123->rx][8->tx;8->rx]
+        //                                                    { { 0x08, 0x08 },{ 0x02, 0x07 } },//第二次[4->tx ;4->rx][6->tx;567->rx]
+        //                                                    { { 0x01, 0x01 },{ 0x04, 0x0E } },//第三次[1->tx ;1->rx][7->tx;678->rx]
+        //                                                    { { 0x04, 0x0E },{ 0x01, 0x01 } } //第四次[3->tx ;234->rx][5->tx;5->rx]
+        //                                                    };
         public byte[,,] SensingSendStatus = new byte[4, 2, 2]{
-                                                            { { 0x02, 0x07 },{ 0x08, 0x08 } },//第一次[2->tx ;123->rx][8->tx;8->rx]
-                                                            { { 0x08, 0x08 },{ 0x02, 0x07 } },//第二次[4->tx ;4->rx][6->tx;567->rx]
-                                                            { { 0x01, 0x01 },{ 0x04, 0x0E } },//第三次[1->tx ;1->rx][7->tx;678->rx]
-                                                            { { 0x04, 0x0E },{ 0x01, 0x01 } } //第四次[3->tx ;234->rx][5->tx;5->rx]
+                                                            { { 0x02, 0x02 },{ 0x08, 0x08 } },//第一次[2->tx ;2->rx][8->tx;8->rx]
+                                                            { { 0x08, 0x08 },{ 0x02, 0x02 } },//第二次[4->tx ;4->rx][6->tx;6->rx]
+                                                            { { 0x01, 0x01 },{ 0x04, 0x04 } },//第三次[1->tx ;1->rx][7->tx;7->rx]
+                                                            { { 0x04, 0x04 },{ 0x01, 0x01 } } //第四次[3->tx ;3->rx][5->tx;5->rx]
                                                             };
         public byte[] LRU_SensingRead_ID = new byte[2] { 0x1f, 0x5E };
         public byte[] SRU_SensingRead_ID = new byte[4] { 0xCf, 0x8E ,0x0D ,0x4C };
+        //public byte[,] STP318SensingReadNum = new byte[2, 4] {
+        //                                                        { 3,1,1,3 },
+        //                                                        { 1,3,3,1 }
+        //                                                    };
+        public byte[,] STP318SensingReadNum = new byte[2, 4] {
+                                                                { 1,1,1,1 },
+                                                                { 1,1,1,1 }
+                                                            };
         public byte[,,] STP318SensingReadStatus = new byte[4, 4, 2] {
                                                                         { {0,0},{1,0},{2,0},{7,1} },
                                                                         { {3,0},{4,1},{5,1},{6,1} },
                                                                         { {0,0},{5,1},{6,1},{7,1} },
                                                                         { {1,0},{2,0},{3,0},{4,1} }
                                                                     };
+        public byte[][][][] STP318SensingRead = new byte[4][][][];
         #endregion
 
         #region Time Relation Function Interface and Variable
@@ -601,7 +620,6 @@ namespace APA
             else
             {
                 msg[0] = (USB2LIN.LIN_MSG)Marshal.PtrToStructure((IntPtr)((UInt32)pt + 0 * Marshal.SizeOf(typeof(USB2LIN.LIN_MSG))), typeof(USB2LIN.LIN_MSG));
-
                 rd_msg.TOF = BitConverter.ToUInt16(msg[0].Data, 0);
                 rd_msg.status = msg[0].Data[2];
                 return rd_msg;
@@ -662,7 +680,7 @@ namespace APA
         /// 
         void DataMapping2Control_STP318(LIN_STP318_ReadData dat, ref TextBox tx, ref Label lb)
         {
-            tx.Text = ((dat.TOF - 110) / 58.0).ToString();
+            tx.Text = (dat.TOF / 58.0).ToString();
             if (dat.status == 1)
             {
                 lb.Text = SensingStatus[0];
@@ -802,45 +820,32 @@ namespace APA
         /// <param name="LIN_STP313_data"> ref STP313 Struct data </param>
         public void LRU_ScheduleTime(ref LIN_STP313_ReadData[] LIN_STP313_data)
         {
-            //IntPtr pt = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(USB2LIN.LIN_MSG)));
-            //USB2LIN.LIN_MSG[] msg = new USB2LIN.LIN_MSG[1];
-            //int ret = USB2LIN.LIN_Read(DevHandle, LINIndex, pt, 1);
-            //int ret1 = USB2LIN.LIN_Read(DevHandle, LINIndex, pt, 1);
-            //ret = USB2LIN.LIN_Write(DevHandle, LINIndex, msg, 1);
             for(int i=0;i< DevNum;i++)
             {
+                
                 //9号传感器
                 LIN_STP313_data[2 * i + 0] = ReadData_STP313(DevHandles[i], 0x1f);           
                 //10号传感器
                 LIN_STP313_data[2 * i + 1] = ReadData_STP313(DevHandles[i], 0x5E);
-            }
-
-            for(int i=0; i< DevNum;i++)
-            {
                 InitSensing_STP313(DevHandles[i], 0x03);
             }
         }
 
         void TimeScheduleStatus1(ref LIN_STP318_ReadData [] m_318Data,ref LIN_STP313_ReadData [] m_313Data,byte step)
         {
-            for (int i = 0; i < DevNum; i++)//STP318 Tx
-            {
-                InitSensing_STP318(DevHandles[i], SensingSendStatus[step, i, 0], SensingSendStatus[step, i, 1]);
-            }
             for (int i = 0; i < DevNum; i++)
             {
+                InitSensing_STP318(DevHandles[i], SensingSendStatus[step, i, 0], SensingSendStatus[step, i, 1]);
                 for (int m = 0; m < 2; m++)
                 {
                     m_313Data[2 * i + m] = ReadData_STP313(DevHandles[i], LRU_SensingRead_ID[m]);
                 }
-            }//60ms
-            for (int i = 0; i < DevNum; i++)//STP313 Tx
-            {
                 InitSensing_STP313(DevHandles[i], 0x03);
-            }
-            for (int n = 0; n < 4; n++)//Finish 318 sensing data read
-            {
-                m_318Data[STP318SensingReadStatus[step, n, 0]] = ReadData_STP318(DevHandles[STP318SensingReadStatus[step, n, 1]], SRU_SensingRead_ID[n]);
+                //System.Threading.Thread.Sleep(60);
+                for (int k=0;k< STP318SensingReadNum[i,step]; k++)
+                {
+                    m_318Data[STP318SensingRead[step][i][0][k]] = ReadData_STP318(DevHandles[i], SRU_SensingRead_ID[STP318SensingRead[step][i][1][k]]);
+                }  
             }
         }
         #endregion
@@ -859,8 +864,8 @@ namespace APA
             {
                 comboBox_DevType.Items.Add(DeviceType[i]);
             }
-            m_arrdevtype[0] = VCI_USBCAN_2E_U;
-            m_arrdevtype[1] = VCI_USBCAN_E_U;
+            m_arrdevtype[0] = VCI_USBCAN_4E_U;
+            m_arrdevtype[1] = VCI_USBCAN_2E_U;
 
             comboBox_DevType.SelectedIndex = 0;
             for (i = 0; i < 8; i++)
@@ -881,16 +886,109 @@ namespace APA
             comboBox_BaudRate.SelectedIndex = 2;
             button_Connect.BackColor = Color.Red;
             //长距离传感器的控件显示
-            SensingControl_9 = new TextBox[5] { textBox13, textBox14, textBox15, textBox16, textBox17 };
-            SensingControl_10 = new TextBox[5] { textBox18, textBox19, textBox20, textBox21, textBox22 };
-            SensingControl_11 = new TextBox[5] { textBox23, textBox24, textBox25, textBox26, textBox27 };
-            SensingControl_12 = new TextBox[5] { textBox28, textBox29, textBox30, textBox31, textBox32 };
+            SensingControl_LRU = new TextBox[4][] {
+                new TextBox[5]{ textBox13, textBox14, textBox15, textBox16, textBox17 },
+                new TextBox[5]{ textBox18, textBox19, textBox20, textBox21, textBox22 },
+                new TextBox[5]{ textBox23, textBox24, textBox25, textBox26, textBox27 },
+                new TextBox[5]{ textBox28, textBox29, textBox30, textBox31, textBox32 }
+            };
+            //短距离传感器的控件初始化
+            SensingControl_SRU_TextBox = new TextBox[8] { textBox1,textBox6,textBox7,textBox8,textBox9,textBox10,textBox11,textBox12};
+            SensingControl_SRU_Label = new Label[8] { label26 , label27 , label28 , label29 , label30 , label31 , label41 , label42 };
 
-            for(i=0;i<2;i++)
+            ////第一次
+            //STP318SensingRead[0] = new byte[2][][];
+            //STP318SensingRead[0][0] = new byte[2][];//device 0
+            //STP318SensingRead[0][0][0] = new byte[3] { 0, 1, 2 };//sensing array
+            //STP318SensingRead[0][0][1] = new byte[3] { 0, 1, 2 };//ID
+            //STP318SensingRead[0][1] = new byte[2][];//device 1
+            //STP318SensingRead[0][1][0] = new byte[1] { 7 };
+            //STP318SensingRead[0][1][1] = new byte[1] { 3 };
+            ////第二次
+            //STP318SensingRead[1] = new byte[2][][];
+            //STP318SensingRead[1][0] = new byte[2][];//device 0
+            //STP318SensingRead[1][0][0] = new byte[1] { 3 };//sensing array
+            //STP318SensingRead[1][0][1] = new byte[1] { 3 };//ID
+            //STP318SensingRead[1][1] = new byte[2][];//device 1
+            //STP318SensingRead[1][1][0] = new byte[3] { 4, 5, 6 };//sensing array
+            //STP318SensingRead[1][1][1] = new byte[3] { 0, 1, 2 };//ID
+            ////第三次
+            //STP318SensingRead[2] = new byte[2][][];
+            //STP318SensingRead[2][0] = new byte[2][];//device 0
+            //STP318SensingRead[2][0][0] = new byte[1] { 0 };//sensing array
+            //STP318SensingRead[2][0][1] = new byte[1] { 0 };//ID
+            //STP318SensingRead[2][1] = new byte[2][];//device 1
+            //STP318SensingRead[2][1][0] = new byte[3] { 5, 6, 7 };//sensing array
+            //STP318SensingRead[2][1][1] = new byte[3] { 1, 2, 3 };//ID
+            ////第四次
+            //STP318SensingRead[3] = new byte[2][][];
+            //STP318SensingRead[3][0] = new byte[2][];//device 0
+            //STP318SensingRead[3][0][0] = new byte[3] { 1, 2, 3 };//sensing array
+            //STP318SensingRead[3][0][1] = new byte[3] { 1, 2, 3 };//ID
+            //STP318SensingRead[3][1] = new byte[2][];//device 1
+            //STP318SensingRead[3][1][0] = new byte[1] { 4 };//sensing array
+            //STP318SensingRead[3][1][1] = new byte[1] { 0 };//ID
+            //第一次
+            STP318SensingRead[0] = new byte[2][][];
+            STP318SensingRead[0][0] = new byte[2][];//device 0
+            STP318SensingRead[0][0][0] = new byte[1] { 1 };//sensing array
+            STP318SensingRead[0][0][1] = new byte[1] { 1};//ID
+            STP318SensingRead[0][1] = new byte[2][];//device 1
+            STP318SensingRead[0][1][0] = new byte[1] { 7 };
+            STP318SensingRead[0][1][1] = new byte[1] { 3 };
+            //第二次
+            STP318SensingRead[1] = new byte[2][][];
+            STP318SensingRead[1][0] = new byte[2][];//device 0
+            STP318SensingRead[1][0][0] = new byte[1] { 3 };//sensing array
+            STP318SensingRead[1][0][1] = new byte[1] { 3 };//ID
+            STP318SensingRead[1][1] = new byte[2][];//device 1
+            STP318SensingRead[1][1][0] = new byte[1] {  5 };//sensing array
+            STP318SensingRead[1][1][1] = new byte[1] {  1 };//ID
+            //第三次
+            STP318SensingRead[2] = new byte[2][][];
+            STP318SensingRead[2][0] = new byte[2][];//device 0
+            STP318SensingRead[2][0][0] = new byte[1] { 0 };//sensing array
+            STP318SensingRead[2][0][1] = new byte[1] { 0 };//ID
+            STP318SensingRead[2][1] = new byte[2][];//device 1
+            STP318SensingRead[2][1][0] = new byte[1] { 6 };//sensing array
+            STP318SensingRead[2][1][1] = new byte[1] { 2 };//ID
+            //第四次
+            STP318SensingRead[3] = new byte[2][][];
+            STP318SensingRead[3][0] = new byte[2][];//device 0
+            STP318SensingRead[3][0][0] = new byte[1] { 2 };//sensing array
+            STP318SensingRead[3][0][1] = new byte[1] { 2 };//ID
+            STP318SensingRead[3][1] = new byte[2][];//device 1
+            STP318SensingRead[3][1][0] = new byte[1] { 4 };//sensing array
+            STP318SensingRead[3][1][1] = new byte[1] { 0 };//ID
+            for (i=0;i<2;i++)
             {
                 comboBox2.Items.Add(SamplingModle[i]);
             }
             comboBox2.SelectedIndex = 0;
+        }
+
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            bool state;
+            if (m_bOpen == 1)
+            {
+                VCI_ResetCAN(m_devtype, m_devind, m_canind);
+                VCI_ResetCAN(m_devtype, m_devind, 1);
+            }
+
+            if (LinDeviceStatus)
+            {
+                for(int i=0;i< DevNum;i++)
+                {
+                    //关闭设备
+                    state = usb_device.USB_CloseDevice(DevHandles[i]);
+                    if (!state)
+                    {
+                        MessageBox.Show("Close Device Error!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                        return;
+                    }
+                }
+            }
         }
 
         unsafe private void button_Connect_Click(object sender, EventArgs e)
@@ -1058,7 +1156,7 @@ namespace APA
             {
                 for (int i = 0; i < DevNum; i++)
                 {
-                    //打开设备
+                    //关闭设备
                     state = usb_device.USB_CloseDevice(DevHandles[i]);
                     if (!state)
                     {
@@ -1070,7 +1168,6 @@ namespace APA
 
                     }
                 }
-                
                 LinDeviceStatus = false;
             }
             else
@@ -1196,31 +1293,31 @@ namespace APA
             LIN_STP313_ReadData m_STP313_test_data = new LIN_STP313_ReadData();
 
             InitSensing_STP318(DevHandles[0], 0x01, 0x01);
-            System.Threading.Thread.Sleep(20);
+            System.Threading.Thread.Sleep(30);
             m_STP318_test_data = ReadData_STP318(DevHandles[0], 0xcf);
             DataMapping2Control_STP318(m_STP318_test_data, ref textBox1, ref label26);
 
             InitSensing_STP318(DevHandles[0], 0x02, 0x02);
-            System.Threading.Thread.Sleep(20);
+            System.Threading.Thread.Sleep(30);
             m_STP318_test_data = ReadData_STP318(DevHandles[0], 0x8E);
             DataMapping2Control_STP318(m_STP318_test_data, ref textBox6, ref label27);
 
             InitSensing_STP318(DevHandles[0], 0x04, 0x04);
-            System.Threading.Thread.Sleep(20);
+            System.Threading.Thread.Sleep(30);
             m_STP318_test_data = ReadData_STP318(DevHandles[0], 0x0D);
             DataMapping2Control_STP318(m_STP318_test_data, ref textBox7, ref label28);
 
             InitSensing_STP318(DevHandles[0], 0x08, 0x08);
-            System.Threading.Thread.Sleep(20);
+            System.Threading.Thread.Sleep(30);
             m_STP318_test_data = ReadData_STP318(DevHandles[0], 0x4C);
             DataMapping2Control_STP318(m_STP318_test_data, ref textBox8, ref label29);
 
             InitSensing_STP313(DevHandles[0], 0x03);
-            System.Threading.Thread.Sleep(40);
+            System.Threading.Thread.Sleep(50);
             m_STP313_test_data = ReadData_STP313(DevHandles[0], 0x1f);
-            DataMapping2Control_STP313(m_STP313_test_data, ref SensingControl_9);
+            DataMapping2Control_STP313(m_STP313_test_data, ref SensingControl_LRU[0]);
             m_STP313_test_data = ReadData_STP313(DevHandles[0], 0x5E);
-            DataMapping2Control_STP313(m_STP313_test_data, ref SensingControl_10);
+            DataMapping2Control_STP313(m_STP313_test_data, ref SensingControl_LRU[1]);
         }
 
         private void timer1_DataSave_Tick(object sender, EventArgs e)
@@ -1346,7 +1443,6 @@ namespace APA
                 UltrasonicSamplingTime.SystemTime = timeGetTime();
                 UltrasonicSamplingTime.TimeErr = UltrasonicSamplingTime.SystemTime - UltrasonicSamplingTime.LastSystemTime;
                 UltrasonicSamplingTime.LastSystemTime = UltrasonicSamplingTime.SystemTime;
-
                 this.label79.Text = UltrasonicSamplingTime.TimeErr.ToString() + "ms";
             }
         }
@@ -1355,6 +1451,13 @@ namespace APA
         {
             STP313_DataMapping m_STP313_DataMapping = new STP313_DataMapping(DataMapping2Control_STP313);
             this.Invoke(m_STP313_DataMapping,new object[] { show_dat, show_tx });
+        }
+
+        private delegate void STP318_DataMapping(LIN_STP318_ReadData dat, ref TextBox tx, ref Label lb);
+        private void STP318_DataShow(LIN_STP318_ReadData show_dat, ref TextBox tx, ref Label lb)
+        {
+            STP318_DataMapping m_STP318_DataMapping = new STP318_DataMapping(DataMapping2Control_STP318);
+            this.Invoke(m_STP318_DataMapping, new object[] { show_dat, tx, lb });
         }
 
         private delegate void LRU_STP_Sampling(ref LIN_STP313_ReadData[] LIN_STP313_data);
@@ -1379,56 +1482,76 @@ namespace APA
             {
                 try
                 {
-                    SamplingCycleShow();
                     if(GetSamplingModule(comboBox2) == 0)
                     {
                         if(LinDeviceStatus)
                         {
+                            SamplingCycleShow();
                             LinSampling_STP_Sensings(ref m_LIN_STP313_ReadData);
                         }
                         if (DataSaveStatus)
                         {
-                            DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:D} {5:D} {6:R16} {7:R16} {8:R16} {9:R16} {10:D} {11:D} \r\n",
+                            DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:D} {5:D} " +
+                                            "{6:R16} {7:R16} {8:R16} {9:R16} " +
+                                            "{10:R16} {11:R16} {12:R16} {13:R16} " +
+                                            "{14:D} {15:D} {16:D} {17:D} " +
+                                            "{18:R16} {19:R16} {20:R16} {21:R16}\r\n",
                             UltrasonicSamplingTime.SystemTime, UltrasonicSamplingTime.TimeErr,
                             m_VehicleImformation.Speed, m_VehicleImformation.Displacement,
                             m_VehicleImformation.SteeringWheelAgularVelocity, m_VehicleImformation.ActualSteeringWheelAngle,
                             m_LIN_STP313_ReadData[0].TOF1 / 58.0, m_LIN_STP313_ReadData[1].TOF1 / 58.0,
                             m_LIN_STP313_ReadData[2].TOF1 / 58.0, m_LIN_STP313_ReadData[3].TOF1 / 58.0,
-                            UltrasonicSamplingTime.SystemTime, UltrasonicSamplingTime.TimeErr);
-                        }          
-                        STP313_DataShow(m_LIN_STP313_ReadData[0], ref SensingControl_9);
-                        STP313_DataShow(m_LIN_STP313_ReadData[1], ref SensingControl_10);
-                        STP313_DataShow(m_LIN_STP313_ReadData[2], ref SensingControl_11);
-                        STP313_DataShow(m_LIN_STP313_ReadData[3], ref SensingControl_12);
+                            m_LIN_STP313_ReadData[0].TOF2 / 58.0, m_LIN_STP313_ReadData[1].TOF2 / 58.0,
+                            m_LIN_STP313_ReadData[2].TOF2 / 58.0, m_LIN_STP313_ReadData[3].TOF2 / 58.0,
+                            m_LIN_STP313_ReadData[0].Width * 16, m_LIN_STP313_ReadData[1].Width * 16,
+                            m_LIN_STP313_ReadData[2].Width * 16, m_LIN_STP313_ReadData[3].Width * 16,
+                            m_LIN_STP313_ReadData[0].Level * 3.3 / 255, m_LIN_STP313_ReadData[1].Level * 3.3 / 255,
+                            m_LIN_STP313_ReadData[2].Level * 3.3 / 255, m_LIN_STP313_ReadData[3].Level * 3.3 / 255
+                            );
+                        }
+                        for (int k = 0; k < 4; k++) { STP313_DataShow(m_LIN_STP313_ReadData[k], ref SensingControl_LRU[k]); }
                         Thread.Sleep(30);
                     }
                     else if(GetSamplingModule(comboBox2) == 1)
                     {
-                        for(byte i=0;i<1;i++)
+                        SamplingCycleShow();
+                        for(byte i=0;i<4;i++)
                         {
-                            if(LinDeviceStatus)
+                            if (LinDeviceStatus)
                             {
+                                
                                 LinSampling_STP_TimeSchedule(ref m_LIN_STP318_ReadData,ref m_LIN_STP313_ReadData,i);
                             }
-                            if (DataSaveStatus)
-                            {
-                                DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:D} {5:D} " +
-                                                "{6:R16} {7:R16} {8:R16} {9:R16}" +
-                                                "{10:R16} {11:R16} {12:R16} {13:R16}" +
-                                                "{14:R16} {15:R16} {16:R16} {17:R16} \r\n",
-                                UltrasonicSamplingTime.SystemTime, UltrasonicSamplingTime.TimeErr,
-                                m_VehicleImformation.Speed, m_VehicleImformation.Displacement,
-                                m_VehicleImformation.SteeringWheelAgularVelocity, m_VehicleImformation.ActualSteeringWheelAngle,
-                                m_LIN_STP318_ReadData[0].TOF / 58.0, m_LIN_STP318_ReadData[1].TOF / 58.0,
-                                m_LIN_STP318_ReadData[2].TOF / 58.0, m_LIN_STP318_ReadData[3].TOF / 58.0,
-                                m_LIN_STP318_ReadData[4].TOF / 58.0, m_LIN_STP318_ReadData[5].TOF / 58.0,
-                                m_LIN_STP318_ReadData[6].TOF / 58.0, m_LIN_STP318_ReadData[7].TOF / 58.0,
-                                m_LIN_STP313_ReadData[0].TOF1 / 58.0, m_LIN_STP313_ReadData[1].TOF1 / 58.0,
-                                m_LIN_STP313_ReadData[2].TOF1 / 58.0, m_LIN_STP313_ReadData[3].TOF1 / 58.0
-                                );
-                            }
-                            System.Threading.Thread.Sleep(16);
+                            Thread.Sleep(15);
                         }
+                        if (DataSaveStatus)
+                        {
+                            DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:D} {5:D} " +
+                                            "{6:R16} {7:R16} {8:R16} {9:R16} " +
+                                            "{10:R16} {11:R16} {12:R16} {13:R16} " +
+                                            "{14:R16} {15:R16} {16:R16} {17:R16} " +
+                                            "{18:R16} {19:R16} {20:R16} {21:R16} " +
+                                            "{22:D} {23:D} {24:D} {25:D} " +
+                                            "{26:R16} {27:R16} {28:R16} {29:R16}\r\n",
+                            UltrasonicSamplingTime.SystemTime, UltrasonicSamplingTime.TimeErr,
+                            m_VehicleImformation.Speed, m_VehicleImformation.Displacement,
+                            m_VehicleImformation.SteeringWheelAgularVelocity, m_VehicleImformation.ActualSteeringWheelAngle,
+                            m_LIN_STP318_ReadData[0].TOF / 58.0, m_LIN_STP318_ReadData[1].TOF / 58.0,
+                            m_LIN_STP318_ReadData[2].TOF / 58.0, m_LIN_STP318_ReadData[3].TOF / 58.0,
+                            m_LIN_STP318_ReadData[4].TOF / 58.0, m_LIN_STP318_ReadData[5].TOF / 58.0,
+                            m_LIN_STP318_ReadData[6].TOF / 58.0, m_LIN_STP318_ReadData[7].TOF / 58.0,
+                            m_LIN_STP313_ReadData[0].TOF1 / 58.0, m_LIN_STP313_ReadData[1].TOF1 / 58.0,
+                            m_LIN_STP313_ReadData[2].TOF1 / 58.0, m_LIN_STP313_ReadData[3].TOF1 / 58.0,
+                            m_LIN_STP313_ReadData[0].TOF2 / 58.0, m_LIN_STP313_ReadData[1].TOF2 / 58.0,
+                            m_LIN_STP313_ReadData[2].TOF2 / 58.0, m_LIN_STP313_ReadData[3].TOF2 / 58.0,
+                            m_LIN_STP313_ReadData[0].Width * 16, m_LIN_STP313_ReadData[1].Width * 16,
+                            m_LIN_STP313_ReadData[2].Width * 16, m_LIN_STP313_ReadData[3].Width * 16,
+                            m_LIN_STP313_ReadData[0].Level * 3.3 / 255, m_LIN_STP313_ReadData[1].Level * 3.3 / 255,
+                            m_LIN_STP313_ReadData[2].Level * 3.3 / 255, m_LIN_STP313_ReadData[3].Level * 3.3 / 255
+                            );
+                        }
+                        for (int k = 0; k < 4; k++) { STP313_DataShow(m_LIN_STP313_ReadData[k], ref SensingControl_LRU[k]); }
+                        for (int k = 0; k < 8; k++) { STP318_DataShow(m_LIN_STP318_ReadData[k], ref SensingControl_SRU_TextBox[k], ref SensingControl_SRU_Label[k]); }
                     }
                     else
                     {
