@@ -64,6 +64,8 @@
     </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="RTK.cs" />
+    <Compile Include="Ultrasonic.cs" />
     <Compile Include="usb2lin.cs" />
     <Compile Include="usb_device.cs" />
     <EmbeddedResource Include="ChartShowForm.resx">

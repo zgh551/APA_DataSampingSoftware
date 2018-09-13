@@ -7,6 +7,9 @@ using USB2XXX;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
+using static APA.Ultrasonic;
+using static APA.RTK;
+using System.Collections.Generic;
 
 #region ZLG CAN Struct
 //1.ZLGCAN系列接口卡信息的数据类型。
@@ -28,42 +31,42 @@ public struct VCI_BOARD_INFO
 
 /////////////////////////////////////////////////////
 //2.定义CAN信息帧的数据类型。
-//unsafe public struct VCI_CAN_OBJ  //使用不安全代码
-//{
-//    public uint ID;
-//    public uint TimeStamp;
-//    public byte TimeFlag;
-//    public byte SendType;
-//    public byte RemoteFlag;//是否是远程帧
-//    public byte ExternFlag;//是否是扩展帧
-//    public byte DataLen;
-
-//    public fixed byte Data[8];
-
-//    public fixed byte Reserved[3];
-
-//}
-//2.定义CAN信息帧的数据类型。
-public struct VCI_CAN_OBJ
+unsafe public struct VCI_CAN_OBJ  //使用不安全代码
 {
-    public UInt32 ID;
-    public UInt32 TimeStamp;
+    public uint ID;
+    public uint TimeStamp;
     public byte TimeFlag;
     public byte SendType;
     public byte RemoteFlag;//是否是远程帧
     public byte ExternFlag;//是否是扩展帧
     public byte DataLen;
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
-    public byte[] Data;
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 3)]
-    public byte[] Reserved;
 
-    public void Init()
-    {
-        Data = new byte[8];
-        Reserved = new byte[3];
-    }
+    public fixed byte Data[8];
+
+    public fixed byte Reserved[3];
+
 }
+////2.定义CAN信息帧的数据类型。
+//public struct VCI_CAN_OBJ 
+//{
+//    public UInt32 ID;
+//    public UInt32 TimeStamp;
+//    public byte TimeFlag;
+//    public byte SendType;
+//    public byte RemoteFlag;//是否是远程帧
+//    public byte ExternFlag;//是否是扩展帧
+//    public byte DataLen;
+//    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
+//    public byte[] Data;
+//    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 3)]
+//    public byte[] Reserved;
+
+//    public void Init()
+//    {
+//        Data = new byte[8];
+//        Reserved = new byte[3];
+//    }
+//}
 
 //3.定义CAN控制器状态的数据类型。
 public struct VCI_CAN_STATUS
@@ -132,25 +135,11 @@ public struct VCI_FILTER_RECORD
 #endregion
 
 #region User Define Struct
-/*** LIN Device Data Struct ***/
-public struct LIN_STP318_ReadData
-{
-    public UInt16 TOF;
-    public byte status;
-}
-
-public struct LIN_STP313_ReadData
-{
-    public UInt16 TOF1;
-    public byte Level;
-    public byte Width;
-    public UInt16 TOF2;
-    public byte status;
-}
 
 public struct VehicleImformation
 {
     public double Speed;
+    public double Speed_ms;
     public double Displacement;
     public Int16 TargetSteeringWheelAngle;
     public Int16 ActualSteeringWheelAngle;
@@ -158,6 +147,11 @@ public struct VehicleImformation
     public double SteeringWheelTorque;
     public byte ECU_status;
     public byte CommunicationStatus;
+    public double Yaw;
+    public double Last_Yaw;
+    public double X;
+    public double Y;
+    public double R;
 }
 
 public struct TimeStruct
@@ -240,13 +234,13 @@ namespace APA
         static extern UInt32 VCI_Receive(UInt32 DeviceType, UInt32 DeviceInd, UInt32 CANInd, IntPtr pReceive, UInt32 Len, Int32 WaitTime);
 
         //static UInt32 m_devtype = 4;//USBCAN2
-        static UInt32 m_devtype = 21;//USBCAN-2e-u
+        static UInt32 m_devtype = 31;//USBCAN-2e-u
         //usb-e-u 波特率
         static UInt32[] GCanBrTab = new UInt32[10]{
-                    0x060003, 0x060004, 0x060007,
-                        0x1C0008, 0x1C0011, 0x160023,
-                        0x1C002C, 0x1600B3, 0x1C00E0,
-                        0x1C01C1
+                        1000000,800000,500000,
+                        250000, 125000, 100000,
+                        50000, 20000, 10000,
+                        5000
                 };
 
 
@@ -267,16 +261,13 @@ namespace APA
         #endregion
 
         #region LIN Device Configure relation varibale
-        //Lin设备相关参数
-        Int32[] DevHandles = new Int32[20];
-        Byte LINIndex = 0;
-        Int32 DevNum;
+
         bool LinDeviceStatus = false;
         bool LinTreadStatus = false;
+        Ultrasonic m_UltrasonicObj = new Ultrasonic();
         #endregion
 
         #region Sensing Relation Control Status Variable
-        string[] SensingStatus = new string[5] { "Blockage", "Noise Error", "Hardware Fault", "Communication Error", "Proximity State" };
         string[] SamplingModle = new string[2] { "两侧4组采集", "12组轮询采集" };
 
         //LRU STP313 传感器 控件显示
@@ -288,35 +279,6 @@ namespace APA
         public LIN_STP313_ReadData[] m_LIN_STP313_ReadData = new LIN_STP313_ReadData[4];
         public LIN_STP318_ReadData[] m_LIN_STP318_ReadData = new LIN_STP318_ReadData[8];
 
-        //public byte[,,] SensingSendStatus = new byte[4, 2, 2]{
-        //                                                    { { 0x02, 0x07 },{ 0x08, 0x08 } },//第一次[2->tx ;123->rx][8->tx;8->rx]
-        //                                                    { { 0x08, 0x08 },{ 0x02, 0x07 } },//第二次[4->tx ;4->rx][6->tx;567->rx]
-        //                                                    { { 0x01, 0x01 },{ 0x04, 0x0E } },//第三次[1->tx ;1->rx][7->tx;678->rx]
-        //                                                    { { 0x04, 0x0E },{ 0x01, 0x01 } } //第四次[3->tx ;234->rx][5->tx;5->rx]
-        //                                                    };
-        public byte[,,] SensingSendStatus = new byte[4, 2, 2]{
-                                                            { { 0x02, 0x02 },{ 0x08, 0x08 } },//第一次[2->tx ;2->rx][8->tx;8->rx]
-                                                            { { 0x08, 0x08 },{ 0x02, 0x02 } },//第二次[4->tx ;4->rx][6->tx;6->rx]
-                                                            { { 0x01, 0x01 },{ 0x04, 0x04 } },//第三次[1->tx ;1->rx][7->tx;7->rx]
-                                                            { { 0x04, 0x04 },{ 0x01, 0x01 } } //第四次[3->tx ;3->rx][5->tx;5->rx]
-                                                            };
-        public byte[] LRU_SensingRead_ID = new byte[2] { 0x1f, 0x5E };
-        public byte[] SRU_SensingRead_ID = new byte[4] { 0xCf, 0x8E ,0x0D ,0x4C };
-        //public byte[,] STP318SensingReadNum = new byte[2, 4] {
-        //                                                        { 3,1,1,3 },
-        //                                                        { 1,3,3,1 }
-        //                                                    };
-        public byte[,] STP318SensingReadNum = new byte[2, 4] {
-                                                                { 1,1,1,1 },
-                                                                { 1,1,1,1 }
-                                                            };
-        public byte[,,] STP318SensingReadStatus = new byte[4, 4, 2] {
-                                                                        { {0,0},{1,0},{2,0},{7,1} },
-                                                                        { {3,0},{4,1},{5,1},{6,1} },
-                                                                        { {0,0},{5,1},{6,1},{7,1} },
-                                                                        { {1,0},{2,0},{3,0},{4,1} }
-                                                                    };
-        public byte[][][][] STP318SensingRead = new byte[4][][][];
         #endregion
 
         #region Time Relation Function Interface and Variable
@@ -343,7 +305,20 @@ namespace APA
         #endregion
 
         ChartShowForm cf = new ChartShowForm();
+
+        #region 串口操作相关变量
+        RTK m_rtk = new RTK();
+        private List<byte> buffer = new List<byte>(4096);//默认分配1页内存，并始终限制不允许超过
+        private byte[] binary_data = new byte[820];
+        RTK_Imformation m_RTK_Imformation = new RTK_Imformation();
+
+        private string [] RTK_SystemStatus = new string[] {"初始化", "粗对准", "精对准", "GPS 定位", "GPS 定向", "RTK", "DMI 组合", "DMI 标定", "纯惯性", "零速校正", "VG 模式" };
+        private string[] RTK_AntannaType = new string[] { "GPS","北斗", "双模" };
+        #endregion
+
         #region 函数方法
+
+        #region CAN设备相关方法
         /// <summary>
         /// CAN0 Receive Function
         /// </summary>
@@ -360,7 +335,6 @@ namespace APA
             for (UInt32 i = 0; i < res; i++)
             {
                 VCI_CAN_OBJ obj = (VCI_CAN_OBJ)Marshal.PtrToStructure((IntPtr)((UInt32)pt + i * Marshal.SizeOf(typeof(VCI_CAN_OBJ))), typeof(VCI_CAN_OBJ));
-
                 if (obj.ID == 0x0C1)
                 {
                     m_vehicle.ActualSteeringWheelAngle = (Int16)((UInt16)(obj.Data[2] << 8 | obj.Data[3]) * 0.1 - 780);//实际角度
@@ -387,7 +361,6 @@ namespace APA
 
             res = VCI_Receive(m_devtype, m_devind, 1, pt, res, 100);
 
-            //String str = "";
             for (UInt32 i = 0; i < res; i++)
             {
                 VCI_CAN_OBJ obj = (VCI_CAN_OBJ)Marshal.PtrToStructure((IntPtr)((UInt32)pt + i * Marshal.SizeOf(typeof(VCI_CAN_OBJ))), typeof(VCI_CAN_OBJ));
@@ -405,34 +378,12 @@ namespace APA
                     CanReceiveTime.LastSystemTime = CanReceiveTime.SystemTime;
 
                     m_vehicle.Speed = (UInt16)(obj.Data[0] << 8 | obj.Data[1]) / 15.4583;//车速
-                    m_vehicle.Displacement += m_vehicle.Speed * CanReceiveTime.TimeErr / 3600.0;
-                    //if (DataSaveStatus)
-                    //{
-                    //    DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:D} {5:D} {6:R16} {7:R16} {8:R16} {9:R16} {10:D} {11:D} \r\n",
-                    //    CanReceiveTime.SystemTime, CanReceiveTime.TimeErr,
-                    //    m_VehicleImformation.Speed, m_VehicleImformation.Displacement,
-                    //    m_VehicleImformation.SteeringWheelAgularVelocity, m_VehicleImformation.ActualSteeringWheelAngle,
-                    //    m_LIN_STP313_ReadData[0].TOF1 / 58.0, m_LIN_STP313_ReadData[1].TOF1 / 58.0,
-                    //    m_LIN_STP313_ReadData[2].TOF1 / 58.0, m_LIN_STP313_ReadData[3].TOF1 / 58.0,
-                    //    UltrasonicSamplingTime.SystemTime, UltrasonicSamplingTime.TimeErr);
-                    //}
+                    VehiclePositioning(ref m_vehicle);
                 }
             }
             Marshal.FreeHGlobal(pt);
         }
 
-        private void VehicleInformationShow(VehicleImformation m_Vehicle)
-        {
-            label11.Text = ECU_Status[m_Vehicle.ECU_status];//ECU状态
-            label12.Text = ComunicationStatus[m_Vehicle.CommunicationStatus];
-            textBox2.Text = Convert.ToString(m_Vehicle.SteeringWheelAgularVelocity) + "°/s";//转角速度
-            textBox3.Text = Convert.ToString(m_Vehicle.SteeringWheelTorque) + " Nm";//扭矩
-
-            textBox4.Text = Convert.ToString(m_Vehicle.TargetSteeringWheelAngle) + "°";//目标角度
-            textBox5.Text = Convert.ToString(m_Vehicle.ActualSteeringWheelAngle) + "°";//实际角度
-            textBox33.Text = Convert.ToString(m_Vehicle.Speed) + " km/h";//实际速度
-            textBox35.Text = Convert.ToString(m_Vehicle.Displacement) + " m";//实际位移
-        }
         /// <summary>
         /// 地盘CAN发送函数
         /// </summary>
@@ -442,26 +393,68 @@ namespace APA
                 return;
 
             VCI_CAN_OBJ sendobj = new VCI_CAN_OBJ();
-            sendobj.Init();
+            //sendobj.i
+            //sendobj.Init();
             sendobj.SendType = 0;//0 -> 正常发送 ;2 -> 自发自收(byte)comboBox_SendType.SelectedIndex;
             sendobj.RemoteFlag = 0;//标准帧 (byte)comboBox_FrameFormat.SelectedIndex;
             sendobj.ExternFlag = 0;// 标准帧数(byte)comboBox_FrameType.SelectedIndex;
             sendobj.ID = 0x215;// System.Convert.ToUInt32("0x" + textBox_ID.Text, 16);
             sendobj.DataLen = 8;
 
-            byte[] b_temp = BitConverter.GetBytes((Convert.ToInt16(textBox_Angle.Text)+780)*10);
+            byte[] b_temp = BitConverter.GetBytes((Convert.ToInt16(textBox_Angle.Text) + 780) * 10);
 
             sendobj.Data[0] = b_temp[1];
             sendobj.Data[1] = b_temp[0];
-      
+
             sendobj.Data[2] = 0x31;
-         
+
             sendobj.Data[3] = 0x00;
-            
+
             sendobj.Data[4] = (byte)(Convert.ToUInt16(textBox_AngularVelocity.Text) / 25);
 
             sendobj.Data[5] = 0x80;
-            
+
+            sendobj.Data[6] = 0x80;
+
+            sendobj.Data[7] = 0x00;
+            int nTimeOut = 3000;
+            VCI_SetReference(m_devtype, m_devind, m_canind, 4, (byte*)&nTimeOut);
+            if (VCI_Transmit(m_devtype, m_devind, m_canind, ref sendobj, 1) == 0)
+            {
+                MessageBox.Show("发送失败", "错误",
+                        MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+            }
+        }
+
+        /// <summary>
+        /// 地盘CAN发送函数,用于控制模块
+        /// </summary>
+        unsafe void CanSendData(Int16 WheelAngle, UInt16 AngularVelocity)
+        {
+            if (m_bOpen == 0)
+                return;
+
+            VCI_CAN_OBJ sendobj = new VCI_CAN_OBJ();
+            //sendobj.Init();
+            sendobj.SendType = 0;//0 -> 正常发送 ;2 -> 自发自收(byte)comboBox_SendType.SelectedIndex;
+            sendobj.RemoteFlag = 0;//标准帧 (byte)comboBox_FrameFormat.SelectedIndex;
+            sendobj.ExternFlag = 0;// 标准帧数(byte)comboBox_FrameType.SelectedIndex;
+            sendobj.ID = 0x215;// System.Convert.ToUInt32("0x" + textBox_ID.Text, 16);
+            sendobj.DataLen = 8;
+
+            byte[] b_temp = BitConverter.GetBytes((WheelAngle + 780) * 10);
+
+            sendobj.Data[0] = b_temp[1];
+            sendobj.Data[1] = b_temp[0];
+
+            sendobj.Data[2] = 0x31;
+
+            sendobj.Data[3] = 0x00;
+
+            sendobj.Data[4] = (byte)(AngularVelocity / 25);
+
+            sendobj.Data[5] = 0x80;
+
             sendobj.Data[6] = 0x80;
 
             sendobj.Data[7] = 0x00;
@@ -483,7 +476,7 @@ namespace APA
                 return;
 
             VCI_CAN_OBJ sendobj = new VCI_CAN_OBJ();
-            sendobj.Init();
+            //sendobj.Init();
             sendobj.SendType = 2;//0 -> 正常发送 (byte)comboBox_SendType.SelectedIndex;
             sendobj.RemoteFlag = 0;//标准帧 (byte)comboBox_FrameFormat.SelectedIndex;
             sendobj.ExternFlag = 0;// 标准帧数(byte)comboBox_FrameType.SelectedIndex;
@@ -516,7 +509,7 @@ namespace APA
         }
 
         /// <summary>
-        /// 测试速度CAN接收的函数
+        /// 测试车身CAN接收函数
         /// </summary>
         unsafe void RecTestSpeedSendData()
         {
@@ -524,7 +517,7 @@ namespace APA
                 return;
 
             VCI_CAN_OBJ sendobj = new VCI_CAN_OBJ();
-            sendobj.Init();
+            //sendobj.Init();
             sendobj.SendType = 2;//0 -> 正常发送 (byte)comboBox_SendType.SelectedIndex;
             sendobj.RemoteFlag = 0;//标准帧 (byte)comboBox_FrameFormat.SelectedIndex;
             sendobj.ExternFlag = 0;// 标准帧数(byte)comboBox_FrameType.SelectedIndex;
@@ -553,309 +546,75 @@ namespace APA
                         MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
             }
         }
-        //end of  CAN function
+        #endregion
 
-        // following is the LIN Device function
-        /*** STP318 ***/
         /// <summary>
-        /// 设置STP318传感器的收发状态
+        /// 车辆位置定位
         /// </summary>
-        /// <param name="tx">指定传感器的发送状态</param>
-        /// <param name="rx">指定传感器的接收状态</param>
-        void InitSensing_STP318(int DevHandle,byte tx,byte rx)
+        /// <param name="m_Vehicle"></param>
+        private void VehiclePositioning(ref VehicleImformation m_Vehicle)
         {
-            int ret;
-            USB2LIN.LIN_MSG[] msg = new USB2LIN.LIN_MSG[2];
-            msg[0].Data = new Byte[9];
-
-            msg[0].Data[0] = tx;
-            msg[0].Data[1] = rx;
-            msg[0].DataLen = 2;
-            msg[0].ID = 0x80;
-
-            ret = USB2LIN.LIN_Write(DevHandle, LINIndex, msg, 1);
-            if (ret != USB2LIN.LIN_SUCCESS)
+            m_Vehicle.Speed_ms = m_Vehicle.Speed / 3.6;
+            m_Vehicle.Displacement += m_Vehicle.Speed_ms * CanReceiveTime.TimeErr * 0.001;
+            //m_Vehicle.Displacement += m_Vehicle.Speed_ms * CanReceiveTime.TimeErr / 3600;
+            if (m_Vehicle.ActualSteeringWheelAngle != 0)
             {
-                MessageBox.Show("LIN write data failed!\n", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-                return;
+                m_Vehicle.Yaw = m_Vehicle.Last_Yaw - Math.Sign(m_Vehicle.ActualSteeringWheelAngle) * m_Vehicle.Displacement / m_Vehicle.R;
+                m_Vehicle.X -= Math.Sign(m_Vehicle.ActualSteeringWheelAngle) * m_Vehicle.R * (Math.Cos(m_Vehicle.Last_Yaw) - Math.Cos(m_Vehicle.Yaw));
+                m_Vehicle.Y -= Math.Sign(m_Vehicle.ActualSteeringWheelAngle) * m_Vehicle.R * (Math.Sin(m_Vehicle.Yaw) - Math.Sin(m_Vehicle.Last_Yaw));
+                m_Vehicle.Last_Yaw = m_Vehicle.Yaw;
             }
             else
             {
-                //Console.WriteLine("LIN write data success!\n");
-            }
-            //延时
-            //System.Threading.Thread.Sleep(20);
-        }
-
-        /// <summary>
-        /// 根据ID号读取相应传感器的数值
-        /// </summary>
-        /// <param name="id">输入所要读取的ID号</param>
-        /// <returns></returns>
-        LIN_STP318_ReadData ReadData_STP318(int DevHandle,byte id)
-        {
-            int ret;
-            LIN_STP318_ReadData rd_msg = new LIN_STP318_ReadData();
-            USB2LIN.LIN_MSG[] msg = new USB2LIN.LIN_MSG[1];
-            msg[0].Data = new Byte[9];
-            msg[0].DataLen = 3;
-            msg[0].ID = id;
-            
-            IntPtr[] ptArray = new IntPtr[1];
-            ptArray[0] = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(USB2LIN.LIN_MSG)) * msg.Length);
-            IntPtr pt = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(USB2LIN.LIN_MSG)));
-            Marshal.Copy(ptArray, 0, pt, 1);
-            //将数组中的数据拷贝到指针所指区域
-            for (int k = 0; k < msg.Length; k++)
-            {
-                Marshal.StructureToPtr(msg[k], (IntPtr)((UInt32)pt + k * Marshal.SizeOf(typeof(USB2LIN.LIN_MSG))), true);
-            }
-
-            ret = USB2LIN.LIN_Read(DevHandle, LINIndex, pt, 1);
-            if (ret < USB2LIN.LIN_SUCCESS)
-            {
-                Console.WriteLine("LIN read data failed!\n");
-                return rd_msg;
-            }
-            else
-            {
-                msg[0] = (USB2LIN.LIN_MSG)Marshal.PtrToStructure((IntPtr)((UInt32)pt + 0 * Marshal.SizeOf(typeof(USB2LIN.LIN_MSG))), typeof(USB2LIN.LIN_MSG));
-                rd_msg.TOF = BitConverter.ToUInt16(msg[0].Data, 0);
-                rd_msg.status = msg[0].Data[2];
-                return rd_msg;
-            }
-        }
-        /// <summary>
-        /// 根据ID号读取相应传感器的数值，一次读取一组数值
-        /// </summary>
-        /// <param name="id">输入所要读取的ID号</param>
-        /// <returns></returns>
-        void STP318_ReadDatas(int DevHandle,byte FrameLenght,byte[] id,ref LIN_STP318_ReadData [] m_stp318datas)
-        {
-            int ret;
-
-            USB2LIN.LIN_MSG[] msg = new USB2LIN.LIN_MSG[FrameLenght];
-            for(int i=0;i< FrameLenght;i++)
-            {
-                msg[0].Data = new Byte[9];
-                msg[0].DataLen = 3;
-                msg[0].ID = id[i];
-            }
-
-            IntPtr[] ptArray = new IntPtr[FrameLenght];
-            for (int i = 0; i < FrameLenght; i++)
-            {
-                ptArray[i] = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(USB2LIN.LIN_MSG)) * msg.Length);
-            }
-
-            IntPtr pt = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(USB2LIN.LIN_MSG)) * msg.Length);
-            Marshal.Copy(ptArray, 0, pt, FrameLenght);
-            ////将数组中的数据拷贝到指针所指区域
-            for (int k = 0; k < msg.Length; k++)
-            {
-                Marshal.StructureToPtr(msg[k], (IntPtr)((UInt32)pt + k * Marshal.SizeOf(typeof(USB2LIN.LIN_MSG))), true);
-            }
-
-            ret = USB2LIN.LIN_Read(DevHandle, LINIndex, pt, FrameLenght);
-            if (ret < USB2LIN.LIN_SUCCESS)
-            {
-                Console.WriteLine("LIN read data failed!\n");
-                //return rd_msg;
-            }
-            else
-            {
-                //msg[0] = (USB2LIN.LIN_MSG)Marshal.PtrToStructure((IntPtr)((UInt32)pt + 0 * Marshal.SizeOf(typeof(USB2LIN.LIN_MSG))), typeof(USB2LIN.LIN_MSG));
-                //msg[1] = (USB2LIN.LIN_MSG)Marshal.PtrToStructure((IntPtr)((UInt32)pt + 1 * Marshal.SizeOf(typeof(USB2LIN.LIN_MSG))), typeof(USB2LIN.LIN_MSG));
-                //rd_msg.TOF = BitConverter.ToUInt16(msg[0].Data, 0);
-                //rd_msg.status = msg[0].Data[2];
-                //return rd_msg;
-            }
-        }
-        /// <summary>
-        /// 将STP318传感器的数据映射进指定控件中
-        /// </summary>
-        /// <param name="dat">input the parameter</param>
-        /// <param name="tx"> ref textbox </param>
-        /// <param name="lb"> ref label</param>
-        /// 
-        void DataMapping2Control_STP318(LIN_STP318_ReadData dat, ref TextBox tx, ref Label lb)
-        {
-            tx.Text = (dat.TOF / 58.0).ToString();
-            if (dat.status == 1)
-            {
-                lb.Text = SensingStatus[0];
-            }
-            else if (dat.status == 2)
-            {
-                lb.Text = SensingStatus[1];
-            }
-            else if (dat.status == 4)
-            {
-                lb.Text = SensingStatus[2];
-            }
-            else if (dat.status == 8)
-            {
-                lb.Text = SensingStatus[3];
-            }
-            else if (dat.status == 16)
-            {
-                lb.Text = SensingStatus[4];
-            }
-            else
-            {
-                lb.Text = "正常";
-            }
-        }
-        /*** STP313 ***/
-        /// <summary>
-        /// STP313 Send and receive function
-        /// </summary>
-        /// 
-        void InitSensing_STP313(int DevHandle, byte tx_rx)
-        {
-            int ret;
-            USB2LIN.LIN_MSG[] msg = new USB2LIN.LIN_MSG[1];
-            msg[0].Data = new Byte[9];
-
-            msg[0].Data[0] = tx_rx;
-            msg[0].DataLen = 1;
-            msg[0].ID = 0xC1;
-            ret = USB2LIN.LIN_Write(DevHandle, LINIndex, msg, 1);
-            if (ret != USB2LIN.LIN_SUCCESS)
-            {
-                MessageBox.Show("LIN write data failed!\n", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-                return;
-            }
-            else
-            {
-                Console.WriteLine("LIN write data success!\n");
+                m_Vehicle.X += m_Vehicle.Displacement * Math.Sin(m_Vehicle.Yaw);
+                m_Vehicle.Y += m_Vehicle.Displacement * Math.Cos(m_Vehicle.Yaw);
             }
         }
 
         /// <summary>
-        /// STP313 Read data function
+        /// 超声波数据的坐标变换
         /// </summary>
-        /// <param name="id">the id od the input datat</param>
-        /// <returns></returns>
-        LIN_STP313_ReadData ReadData_STP313(int DevHandle,byte id)
+        /// <param name="m_318"></param>
+        /// <param name="m_313"></param>
+        private void UltrasonicCoordinateChange(LIN_STP318_ReadData m_318, LIN_STP313_ReadData m_313)
         {
-            int ret;
-            LIN_STP313_ReadData rd_msg = new LIN_STP313_ReadData();
-            USB2LIN.LIN_MSG[] msg = new USB2LIN.LIN_MSG[1];
-            msg[0].Data = new Byte[9];
-            msg[0].DataLen = 7;
-            msg[0].ID = id;
 
-            IntPtr[] ptArray = new IntPtr[1];
-            ptArray[0] = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(USB2LIN.LIN_MSG)) * msg.Length);
-            IntPtr pt = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(USB2LIN.LIN_MSG)));
-            Marshal.Copy(ptArray, 0, pt, 1);
-            //将数组中的数据拷贝到指针所指区域
-            for (int k = 0; k < msg.Length; k++)
-            {
-                Marshal.StructureToPtr(msg[k], (IntPtr)((UInt32)pt + k * Marshal.SizeOf(typeof(USB2LIN.LIN_MSG))), true);
-            }
-
-            ret = USB2LIN.LIN_Read(DevHandle, LINIndex, pt, 1);
-            if (ret < USB2LIN.LIN_SUCCESS)
-            {
-                Console.WriteLine("LIN read data failed!\n");
-                return rd_msg;
-            }
-            else
-            {
-                msg[0] = (USB2LIN.LIN_MSG)Marshal.PtrToStructure((IntPtr)((UInt32)pt + 0 * Marshal.SizeOf(typeof(USB2LIN.LIN_MSG))), typeof(USB2LIN.LIN_MSG));
-
-                rd_msg.TOF1 = BitConverter.ToUInt16(msg[0].Data, 0);
-                rd_msg.Level = msg[0].Data[2];
-                rd_msg.Width = msg[0].Data[3];
-                rd_msg.TOF2 = BitConverter.ToUInt16(msg[0].Data, 4);
-                rd_msg.status = msg[0].Data[6];
-                return rd_msg;
-            }
         }
 
         /// <summary>
-        /// 将STP313传感器的数据映射到指定的控件中
+        /// 车辆信息显示
         /// </summary>
-        /// <param name="dat"></param>
-        /// <param name="tx"></param>
-        /// <param name="lb"></param>
-        void DataMapping2Control_STP313(LIN_STP313_ReadData dat, ref TextBox[] tx)
+        /// <param name="m_Vehicle"></param>
+        private void VehicleInformationShow(VehicleImformation m_Vehicle)
         {
-            tx[0].Text = ((dat.TOF1 ) / 58.0).ToString();
-            tx[1].Text = ((dat.TOF2 ) / 58.0).ToString();
-            tx[2].Text = (dat.Width * 16).ToString();
-            tx[3].Text = (dat.Level * 3.3 / 255).ToString();
+            label11.Text = ECU_Status[m_Vehicle.ECU_status];//ECU状态
+            label12.Text = ComunicationStatus[m_Vehicle.CommunicationStatus];
+            textBox2.Text = Convert.ToString(m_Vehicle.SteeringWheelAgularVelocity) + "°/s";//转角速度
+            textBox3.Text = Convert.ToString(m_Vehicle.SteeringWheelTorque) + " Nm";//扭矩
 
-            if (dat.status == 1)
-            {
-                tx[4].Text = SensingStatus[0];
-            }
-            else if (dat.status == 2)
-            {
-                tx[4].Text = SensingStatus[1];
-            }
-            else if (dat.status == 4)
-            {
-                tx[4].Text = SensingStatus[2];
-            }
-            else if (dat.status == 8)
-            {
-                tx[4].Text = SensingStatus[3];
-            }
-            else if (dat.status == 16)
-            {
-                tx[4].Text = SensingStatus[4];
-            }
-            else
-            {
-                tx[4].Text = "正常";
-            }
+            textBox4.Text = Convert.ToString(m_Vehicle.TargetSteeringWheelAngle) + "°";//目标角度
+            textBox5.Text = Convert.ToString(m_Vehicle.ActualSteeringWheelAngle) + "°";//实际角度
+            textBox33.Text = Convert.ToString(m_Vehicle.Speed) + " km/h";//实际速度
+            textBox35.Text = Convert.ToString(m_Vehicle.Displacement) + " m";//实际位移
+
+            label88.Text = Convert.ToString(m_Vehicle.X) + " m";//X轴位移
+            label89.Text = Convert.ToString(m_Vehicle.Y) + " m";//Y轴位移
+
+            label91.Text = Convert.ToString(m_Vehicle.Yaw*57.6) + " 度";//偏航角度
         }
 
-        /// <summary>
-        /// 传感器的调度时序
-        /// </summary>
-        /// <param name="LIN_STP313_data"> ref STP313 Struct data </param>
-        public void LRU_ScheduleTime(ref LIN_STP313_ReadData[] LIN_STP313_data)
-        {
-            for(int i=0;i< DevNum;i++)
-            {
-                
-                //9号传感器
-                LIN_STP313_data[2 * i + 0] = ReadData_STP313(DevHandles[i], 0x1f);           
-                //10号传感器
-                LIN_STP313_data[2 * i + 1] = ReadData_STP313(DevHandles[i], 0x5E);
-                InitSensing_STP313(DevHandles[i], 0x03);
-            }
-        }
-
-        void TimeScheduleStatus1(ref LIN_STP318_ReadData [] m_318Data,ref LIN_STP313_ReadData [] m_313Data,byte step)
-        {
-            for (int i = 0; i < DevNum; i++)
-            {
-                InitSensing_STP318(DevHandles[i], SensingSendStatus[step, i, 0], SensingSendStatus[step, i, 1]);
-                for (int m = 0; m < 2; m++)
-                {
-                    m_313Data[2 * i + m] = ReadData_STP313(DevHandles[i], LRU_SensingRead_ID[m]);
-                }
-                InitSensing_STP313(DevHandles[i], 0x03);
-                //System.Threading.Thread.Sleep(60);
-                for (int k=0;k< STP318SensingReadNum[i,step]; k++)
-                {
-                    m_318Data[STP318SensingRead[step][i][0][k]] = ReadData_STP318(DevHandles[i], SRU_SensingRead_ID[STP318SensingRead[step][i][1][k]]);
-                }  
-            }
-        }
         #endregion
 
         #region 控件事件
+        #region 窗体事件
         public Form1()
         {
             InitializeComponent();
-
+            serialPort1.DataReceived += SerialPort1_DataReceived;
+            serialPort1.Encoding = Encoding.GetEncoding("GB2312");
         }
+
+
 
         private void Form1_Load(object sender, EventArgs e)
         {
@@ -896,80 +655,19 @@ namespace APA
             SensingControl_SRU_TextBox = new TextBox[8] { textBox1,textBox6,textBox7,textBox8,textBox9,textBox10,textBox11,textBox12};
             SensingControl_SRU_Label = new Label[8] { label26 , label27 , label28 , label29 , label30 , label31 , label41 , label42 };
 
-            ////第一次
-            //STP318SensingRead[0] = new byte[2][][];
-            //STP318SensingRead[0][0] = new byte[2][];//device 0
-            //STP318SensingRead[0][0][0] = new byte[3] { 0, 1, 2 };//sensing array
-            //STP318SensingRead[0][0][1] = new byte[3] { 0, 1, 2 };//ID
-            //STP318SensingRead[0][1] = new byte[2][];//device 1
-            //STP318SensingRead[0][1][0] = new byte[1] { 7 };
-            //STP318SensingRead[0][1][1] = new byte[1] { 3 };
-            ////第二次
-            //STP318SensingRead[1] = new byte[2][][];
-            //STP318SensingRead[1][0] = new byte[2][];//device 0
-            //STP318SensingRead[1][0][0] = new byte[1] { 3 };//sensing array
-            //STP318SensingRead[1][0][1] = new byte[1] { 3 };//ID
-            //STP318SensingRead[1][1] = new byte[2][];//device 1
-            //STP318SensingRead[1][1][0] = new byte[3] { 4, 5, 6 };//sensing array
-            //STP318SensingRead[1][1][1] = new byte[3] { 0, 1, 2 };//ID
-            ////第三次
-            //STP318SensingRead[2] = new byte[2][][];
-            //STP318SensingRead[2][0] = new byte[2][];//device 0
-            //STP318SensingRead[2][0][0] = new byte[1] { 0 };//sensing array
-            //STP318SensingRead[2][0][1] = new byte[1] { 0 };//ID
-            //STP318SensingRead[2][1] = new byte[2][];//device 1
-            //STP318SensingRead[2][1][0] = new byte[3] { 5, 6, 7 };//sensing array
-            //STP318SensingRead[2][1][1] = new byte[3] { 1, 2, 3 };//ID
-            ////第四次
-            //STP318SensingRead[3] = new byte[2][][];
-            //STP318SensingRead[3][0] = new byte[2][];//device 0
-            //STP318SensingRead[3][0][0] = new byte[3] { 1, 2, 3 };//sensing array
-            //STP318SensingRead[3][0][1] = new byte[3] { 1, 2, 3 };//ID
-            //STP318SensingRead[3][1] = new byte[2][];//device 1
-            //STP318SensingRead[3][1][0] = new byte[1] { 4 };//sensing array
-            //STP318SensingRead[3][1][1] = new byte[1] { 0 };//ID
-            //第一次
-            STP318SensingRead[0] = new byte[2][][];
-            STP318SensingRead[0][0] = new byte[2][];//device 0
-            STP318SensingRead[0][0][0] = new byte[1] { 1 };//sensing array
-            STP318SensingRead[0][0][1] = new byte[1] { 1};//ID
-            STP318SensingRead[0][1] = new byte[2][];//device 1
-            STP318SensingRead[0][1][0] = new byte[1] { 7 };
-            STP318SensingRead[0][1][1] = new byte[1] { 3 };
-            //第二次
-            STP318SensingRead[1] = new byte[2][][];
-            STP318SensingRead[1][0] = new byte[2][];//device 0
-            STP318SensingRead[1][0][0] = new byte[1] { 3 };//sensing array
-            STP318SensingRead[1][0][1] = new byte[1] { 3 };//ID
-            STP318SensingRead[1][1] = new byte[2][];//device 1
-            STP318SensingRead[1][1][0] = new byte[1] {  5 };//sensing array
-            STP318SensingRead[1][1][1] = new byte[1] {  1 };//ID
-            //第三次
-            STP318SensingRead[2] = new byte[2][][];
-            STP318SensingRead[2][0] = new byte[2][];//device 0
-            STP318SensingRead[2][0][0] = new byte[1] { 0 };//sensing array
-            STP318SensingRead[2][0][1] = new byte[1] { 0 };//ID
-            STP318SensingRead[2][1] = new byte[2][];//device 1
-            STP318SensingRead[2][1][0] = new byte[1] { 6 };//sensing array
-            STP318SensingRead[2][1][1] = new byte[1] { 2 };//ID
-            //第四次
-            STP318SensingRead[3] = new byte[2][][];
-            STP318SensingRead[3][0] = new byte[2][];//device 0
-            STP318SensingRead[3][0][0] = new byte[1] { 2 };//sensing array
-            STP318SensingRead[3][0][1] = new byte[1] { 2 };//ID
-            STP318SensingRead[3][1] = new byte[2][];//device 1
-            STP318SensingRead[3][1][0] = new byte[1] { 4 };//sensing array
-            STP318SensingRead[3][1][1] = new byte[1] { 0 };//ID
+
             for (i=0;i<2;i++)
             {
                 comboBox2.Items.Add(SamplingModle[i]);
             }
             comboBox2.SelectedIndex = 0;
+
+            m_VehicleImformation.R = 3.85;
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
-            bool state;
+            
             if (m_bOpen == 1)
             {
                 VCI_ResetCAN(m_devtype, m_devind, m_canind);
@@ -978,19 +676,17 @@ namespace APA
 
             if (LinDeviceStatus)
             {
-                for(int i=0;i< DevNum;i++)
-                {
-                    //关闭设备
-                    state = usb_device.USB_CloseDevice(DevHandles[i]);
-                    if (!state)
-                    {
-                        MessageBox.Show("Close Device Error!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-                        return;
-                    }
-                }
+                m_UltrasonicObj.CloseUltrasonicDevice();
             }
         }
+        #endregion
 
+        #region CAN设备相关操作
+        /// <summary>
+        /// CAN设备连接
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         unsafe private void button_Connect_Click(object sender, EventArgs e)
         {
             if (m_bOpen == 1)
@@ -1017,14 +713,14 @@ namespace APA
                 if (VCI_SetReference(m_devtype, m_devind, m_canind, 0, (byte*)&baud) != STATUS_OK)
                 {
 
-                    MessageBox.Show("设置波特率错误，打开设备失败!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                    MessageBox.Show("设置波特率错误，打开设备0失败!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
                     VCI_CloseDevice(m_devtype, m_devind);
                     return;
                 }
                 if (VCI_SetReference(m_devtype, m_devind, 1, 0, (byte*)&baud) != STATUS_OK)
                 {
 
-                    MessageBox.Show("设置波特率错误，打开设备失败!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                    MessageBox.Show("设置波特率错误，打开设备1失败!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
                     VCI_CloseDevice(m_devtype, m_devind);
                     return;
                 }
@@ -1073,11 +769,16 @@ namespace APA
             button_Connect.BackColor = m_bOpen == 1 ? Color.Green : Color.Red;
         }
 
+        /// <summary>
+        /// 启动CAN的端口号
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void button_StartCan_Click(object sender, EventArgs e)
         {
             if (m_bOpen == 0)
                 return;
-            VCI_StartCAN(m_devtype, m_devind, m_canind);
+            VCI_StartCAN(m_devtype, m_devind, 0);
             VCI_StartCAN(m_devtype, m_devind, 1);
             ThreadStart CANTreadChild = new ThreadStart(CallToCANReceiveThread);
             Thread m_CanReceiveChildThread = new Thread(CANTreadChild);
@@ -1085,13 +786,19 @@ namespace APA
             m_CanReceiveChildThread.Start();
         }
 
+        /// <summary>
+        /// 关闭CAN设备
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void button_Reset_Click(object sender, EventArgs e)
         {
             if (m_bOpen == 0)
                 return;
-            VCI_ResetCAN(m_devtype, m_devind, m_canind);
+            VCI_ResetCAN(m_devtype, m_devind, 0);
             VCI_ResetCAN(m_devtype, m_devind, 1);
         }
+
         //方向盘角度
         private void trackBar1_Scroll(object sender, EventArgs e)
         {
@@ -1123,93 +830,206 @@ namespace APA
         {
             SendData();
         }
-        //Lin设备扫描
+
+        /// <summary>
+        /// CAN接收测试
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void button6_Click(object sender, EventArgs e)
+        {
+            RecTestSendData();
+            RecTestSpeedSendData();
+        }
+
+        #endregion
+
+        #region Lin设备相关事件
+        /// <summary>
+        /// Lin设备扫描
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void button7_Click(object sender, EventArgs e)
         {
-            
             //扫描查找设备
-            DevNum = usb_device.USB_ScanDevice(DevHandles);
-            if (DevNum <= 0)
+            m_UltrasonicObj.ScanningDevice();
+            if (m_UltrasonicObj.DevNum <= 0)
             {
                 MessageBox.Show("No device connected!", "错误",MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
             }
             else
             {
-                for(int i=0;i< DevNum;i++)
+                for(int i=0;i< m_UltrasonicObj.DevNum; i++)
                 {
-                    if (!comboBox1.Items.Contains(DevHandles[i]))
+                    if (!comboBox1.Items.Contains(m_UltrasonicObj.DevHandles[i]))
                     {
-                        comboBox1.Items.Add(DevHandles[i]);
-                        
+                        comboBox1.Items.Add(m_UltrasonicObj.DevHandles[i]);
                     }
                 }
                 comboBox1.SelectedIndex = 0;
             }
         }
-        //Lin 设备连接
+
+        /// <summary>
+        /// Lin 设备连接
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void button8_Click(object sender, EventArgs e)
         {
-            bool state;
-            Int32 ret;
-
             if (LinDeviceStatus)
             {
-                for (int i = 0; i < DevNum; i++)
-                {
-                    //关闭设备
-                    state = usb_device.USB_CloseDevice(DevHandles[i]);
-                    if (!state)
-                    {
-                        MessageBox.Show("Close Device Error!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-                        return;
-                    }
-                    else
-                    {
-
-                    }
-                }
+                m_UltrasonicObj.CloseUltrasonicDevice();
                 LinDeviceStatus = false;
             }
             else
             {
-                for (int i = 0; i < DevNum; i++)
+                bool DevOpenStatus = m_UltrasonicObj.OpenUltrasonicDevice();
+                if(DevOpenStatus)
                 {
-                    //打开设备
-                    state = usb_device.USB_OpenDevice(DevHandles[i]);
-                    if (!state)
-                    {
-                        MessageBox.Show("Open device error!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-                        return;
-                    }
-                    else
-                    {
-                    }
-                    //初始化配置LIN
-                    USB2LIN.LIN_CONFIG LINConfig = new USB2LIN.LIN_CONFIG();
-                    LINConfig.BaudRate = 19200;
-                    LINConfig.BreakBits = USB2LIN.LIN_BREAK_BITS_10;
-                    LINConfig.CheckMode = USB2LIN.LIN_CHECK_MODE_EXT;
-                    LINConfig.MasterMode = USB2LIN.LIN_MASTER;
-                    ret = USB2LIN.LIN_Init(DevHandles[i], LINIndex, ref LINConfig);
-                    if (ret != USB2LIN.LIN_SUCCESS)
-                    {
-                        MessageBox.Show("Config LIN failed!", "错误", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-                        return;
-                    }
-                    else
-                    {
-                        Console.WriteLine("Config LIN Success!");
-                    }
+                    ThreadStart SamplingThread = new ThreadStart(CallToUltrasonicSamplingThread);
+                    Thread UltrasonicSamplingThread = new Thread(SamplingThread);
+                    UltrasonicSamplingThread.IsBackground = true;
+                    UltrasonicSamplingThread.Start();
                 }
-                ThreadStart SamplingThread = new ThreadStart(CallToUltrasonicSamplingThread);
-                Thread UltrasonicSamplingThread = new Thread(SamplingThread);
-                UltrasonicSamplingThread.IsBackground = true;
-                UltrasonicSamplingThread.Start();
                 LinDeviceStatus = true;
             }
             button8.BackColor = LinDeviceStatus ? Color.Green : Color.Red;
             button8.Text = LinDeviceStatus ? "Lin连接断开" : "Lin设备连接";
         }
+
+        /// <summary>
+        /// 单次测试
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void button9_Click(object sender, EventArgs e)
+        {
+            m_UltrasonicObj.ScheduleOneTime(ref m_LIN_STP318_ReadData, ref m_LIN_STP313_ReadData);
+            for (int k = 0; k < 4; k++) { m_UltrasonicObj.DataMapping2Control_STP313(m_LIN_STP313_ReadData[k], ref SensingControl_LRU[k]); }
+            for (int k = 0; k < 8; k++) { m_UltrasonicObj.DataMapping2Control_STP318(m_LIN_STP318_ReadData[k], ref SensingControl_SRU_TextBox[k], ref SensingControl_SRU_Label[k]); }
+        }
+        #endregion
+
+        #region 串口事件相关
+
+        /// <summary>
+        /// 串口端口号搜索
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void label92_Click(object sender, EventArgs e)
+        {
+            m_rtk.SearchAndAddSerialToComboBox(serialPort1, comboBox3);
+        }
+        /// <summary>
+        /// 串口打开关闭事件
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void button16_Click(object sender, EventArgs e)
+        {
+            m_rtk.SerialPortName = comboBox3.Text;
+            m_rtk.SerialBaudRate = 115200;
+            m_rtk.SerialOperation(serialPort1, button16);
+        }
+
+        private void SerialPort1_DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
+        {
+            if (m_rtk.IsClosing)
+                return;
+            try
+            {
+                m_rtk.IsListning = true;
+                int n = serialPort1.BytesToRead;//先记录下来，避免某种原因，人为的原因，操作几次之间时间长，缓存不一致  
+                byte[] data = new byte[n]; 
+                serialPort1.Read(data, 0, n);//读取缓冲数据 
+
+                //<协议解析>  
+                bool data_catched = false;//缓存记录数据是否捕获到  
+                                          //1.缓存数据  
+                buffer.AddRange(data);
+                //2.完整性判断，进行数据的校验
+                while (buffer.Count >= 53)//至少要包含头（2字节）+命令（1字节）+ 长度（1字节）+ 数据（4字节）+ 校验（1字节）
+                {
+                    //2.1 查找数据头
+                    if (buffer[0] == 0xAA && buffer[1] == 0x55)
+                    {
+                        //2.2 探测缓存数据是否有一条数据的字节，如果不够，就不用费劲的做其他验证了  
+                        //前面已经限定了剩余长度>=4，那我们这里一定能访问到buffer[2]这个长度  
+                        int Frame_ID = buffer[2];//数据帧号
+ 
+                        if (Frame_ID != 1) break;
+
+                        byte checksum = 0;
+                        for (int i = 0; i < 53; i++)//len+3表示校验之前的位置  
+                        {
+                            checksum += buffer[i];
+                        }
+                        if (checksum != buffer[53]) //如果数据校验失败，丢弃这一包数据  
+                        {
+                            buffer.RemoveRange(0, 53);//从缓存中删除错误数据  
+                            continue;//继续下一次循环  
+                        }
+                        //至此，已经被找到了一条完整数据。我们将数据直接分析，或是缓存起来一起分析  
+                        //我们这里采用的办法是缓存一次，好处就是如果你某种原因，数据堆积在缓存buffer中  
+                        //已经很多了，那你需要循环的找到最后一组，只分析最新数据，过往数据你已经处理不及时  
+                        //了，就不要浪费更多时间了，这也是考虑到系统负载能够降低。  
+                        buffer.CopyTo(3, binary_data, 0, 49);//复制一条完整数据到具体的数据缓存  
+                        data_catched = true;
+                        buffer.RemoveRange(0, 53);//正确分析一条数据，从缓存中移除数据。  
+                    }
+                    else
+                    {
+                        //这里是很重要的，如果数据开始不是头，则删除数据  
+                        buffer.RemoveAt(0);
+                    }
+                }//while结束
+                //分析数据 
+                if (data_catched)
+                {
+                    //更新界面  
+                    this.Invoke((EventHandler)(delegate
+                    {
+                        m_RTK_Imformation.Week = BitConverter.ToUInt16(binary_data,0);//0-1
+                        m_RTK_Imformation.Second = BitConverter.ToUInt16(binary_data, 2);//2-5
+                        m_RTK_Imformation.Yaw = BitConverter.ToSingle(binary_data, 6);//6-9
+                        m_RTK_Imformation.Pitch = BitConverter.ToSingle(binary_data, 10);//10-13
+                        m_RTK_Imformation.Roll = BitConverter.ToSingle(binary_data, 14);//14-17
+
+                        m_RTK_Imformation.Latitude = BitConverter.ToUInt32(binary_data, 18);//18-21
+                        m_RTK_Imformation.Longitude = BitConverter.ToUInt32(binary_data, 22);//22-25
+                        m_RTK_Imformation.Height = BitConverter.ToUInt32(binary_data, 26);//26-29
+
+                        m_RTK_Imformation.EastVelocity = BitConverter.ToSingle(binary_data, 30);//30-33
+                        m_RTK_Imformation.WestVelocity = BitConverter.ToSingle(binary_data, 34);//34-37
+                        m_RTK_Imformation.SkyVelocity = BitConverter.ToSingle(binary_data, 38);//38-41
+
+                        m_RTK_Imformation.BaseLineLenght = BitConverter.ToSingle(binary_data, 42);//42-45
+
+                        m_RTK_Imformation.AntennaNumber1 = binary_data[46];
+                        m_RTK_Imformation.AntennaNumber2 = binary_data[47];
+                        m_RTK_Imformation.Status = binary_data[48];
+
+                        textBox36.Text = Math.Sqrt(Math.Pow(m_RTK_Imformation.EastVelocity, 2) + Math.Pow(m_RTK_Imformation.WestVelocity, 2)).ToString() + "m/s";
+
+                        label96.Text = RTK_SystemStatus[m_RTK_Imformation.Status & 0x0f];
+                        label97.Text = RTK_AntannaType[(m_RTK_Imformation.Status >> 4) & 0x0f];
+
+                        textBox37.Text = m_RTK_Imformation.Yaw.ToString();
+                    }));
+                }
+            }
+            finally
+            {
+                m_rtk.IsListning = false;
+            }
+        }
+        #endregion
+
+
+        #region 数据保存相关事件
 
         /// <summary>
         /// 保存路径选择
@@ -1238,109 +1058,11 @@ namespace APA
             }
         }
 
-        //波形图显示
-        private void button10_Click(object sender, EventArgs e)
-        {
-            if (!cf.Visible)
-            {
-                cf.Show();
-            }
-        }
-
         /// <summary>
-        /// STP 313 传感器的更新周期测试
+        /// 开始保存数据
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void button14_Click(object sender, EventArgs e)
-        {
-            double distance;
-            TimeErr = 0;
-            timeBeginPeriod(1);
-            InitSensing_STP313(DevHandles[0], 0x01);
-            SystemTime = timeGetTime();
-            while (TimeErr < 300)
-            {
-                LIN_STP313_ReadData test_s = ReadData_STP313(DevHandles[0], 0x1f);
-                distance = (test_s.TOF1 - 110) / 58.0;
-                listBox2.Items.Add(distance);
-
-                TimeErr = timeGetTime() - SystemTime ;
-
-            }
-            timeEndPeriod(1);
-        }
-        private void button15_Click(object sender, EventArgs e)
-        {
-            listBox2.Items.Clear();
-        }
-
-        //CAN接收测试
-        private void button6_Click(object sender, EventArgs e)
-        {
-            RecTestSendData();
-            RecTestSpeedSendData();
-        }
-
-        /// <summary>
-        /// 单次测试
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void button9_Click(object sender, EventArgs e)
-        {
-            LIN_STP318_ReadData m_STP318_test_data = new LIN_STP318_ReadData();
-            LIN_STP313_ReadData m_STP313_test_data = new LIN_STP313_ReadData();
-
-            InitSensing_STP318(DevHandles[0], 0x01, 0x01);
-            System.Threading.Thread.Sleep(30);
-            m_STP318_test_data = ReadData_STP318(DevHandles[0], 0xcf);
-            DataMapping2Control_STP318(m_STP318_test_data, ref textBox1, ref label26);
-
-            InitSensing_STP318(DevHandles[0], 0x02, 0x02);
-            System.Threading.Thread.Sleep(30);
-            m_STP318_test_data = ReadData_STP318(DevHandles[0], 0x8E);
-            DataMapping2Control_STP318(m_STP318_test_data, ref textBox6, ref label27);
-
-            InitSensing_STP318(DevHandles[0], 0x04, 0x04);
-            System.Threading.Thread.Sleep(30);
-            m_STP318_test_data = ReadData_STP318(DevHandles[0], 0x0D);
-            DataMapping2Control_STP318(m_STP318_test_data, ref textBox7, ref label28);
-
-            InitSensing_STP318(DevHandles[0], 0x08, 0x08);
-            System.Threading.Thread.Sleep(30);
-            m_STP318_test_data = ReadData_STP318(DevHandles[0], 0x4C);
-            DataMapping2Control_STP318(m_STP318_test_data, ref textBox8, ref label29);
-
-            InitSensing_STP313(DevHandles[0], 0x03);
-            System.Threading.Thread.Sleep(50);
-            m_STP313_test_data = ReadData_STP313(DevHandles[0], 0x1f);
-            DataMapping2Control_STP313(m_STP313_test_data, ref SensingControl_LRU[0]);
-            m_STP313_test_data = ReadData_STP313(DevHandles[0], 0x5E);
-            DataMapping2Control_STP313(m_STP313_test_data, ref SensingControl_LRU[1]);
-        }
-
-        private void timer1_DataSave_Tick(object sender, EventArgs e)
-        {
-            FileSaveTime.SystemTime = timeGetTime();
-            if(FileSaveTime.LastSystemTime == 0)
-            {
-                FileSaveTime.TimeErr = 0;
-            }
-            else
-            {
-                FileSaveTime.TimeErr = FileSaveTime.SystemTime - FileSaveTime.LastSystemTime;
-            }
-            FileSaveTime.LastSystemTime = FileSaveTime.SystemTime;
-            DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:D} {5:D} {6:R16} {7:R16} {8:R16} {9:R16} {10:D} {11:D} \r\n", 
-                FileSaveTime.SystemTime, FileSaveTime.TimeErr,
-                m_VehicleImformation.Speed, m_VehicleImformation.Displacement,
-                m_VehicleImformation.SteeringWheelAgularVelocity, m_VehicleImformation.ActualSteeringWheelAngle,
-                m_LIN_STP313_ReadData[0].TOF1 / 58.0, m_LIN_STP313_ReadData[1].TOF1 / 58.0,
-                m_LIN_STP313_ReadData[2].TOF1 / 58.0, m_LIN_STP313_ReadData[3].TOF1 / 58.0,
-                UltrasonicSamplingTime.SystemTime, UltrasonicSamplingTime.TimeErr);
-        }
-        //开始保存
         private void button12_Click(object sender, EventArgs e)
         {
             if (!DataSaveStatus)
@@ -1349,6 +1071,10 @@ namespace APA
                 newFileName = DateTime.Now.ToString("yyyyMMddHHmmss") + "_" + textBox34.Text + "_" + fileNameExt;
                 DataSave = new StreamWriter(FilePath + "\\" + newFileName, true, Encoding.ASCII);
                 m_VehicleImformation.Displacement = 0.0;
+                m_VehicleImformation.X = 0.0;
+                m_VehicleImformation.Y = 0.0;
+                m_VehicleImformation.Yaw = 0.0;
+                m_VehicleImformation.Last_Yaw = 0.0;
                 //timer1_DataSave.Enabled = true;
                 timeBeginPeriod(1);
                 DataSaveStatus = true;
@@ -1363,6 +1089,66 @@ namespace APA
             button12.Text = DataSaveStatus ? "取消保存" : "开始保存";
             button12.BackColor = DataSaveStatus ? Color.Green : Color.Red;
         }
+        #endregion
+
+        #region 图形化显示事件
+        /// <summary>
+        /// 波形图显示
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void button10_Click(object sender, EventArgs e)
+        {
+            if (!cf.Visible)
+            {
+                cf.Show();
+            }
+        }
+
+        #endregion
+
+        /// <summary>
+        /// 定时器事件
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void timer1_DataSave_Tick(object sender, EventArgs e)
+        {
+            if (m_VehicleImformation.Displacement < 3.345)
+            {
+                m_VehicleImformation.R = 3.856;
+                CanSendData(-540, 20);
+            }
+            else if(m_VehicleImformation.Displacement >= 3.345 && m_VehicleImformation.Displacement < 6.434)
+            {
+                m_VehicleImformation.R = 3.5609;
+                CanSendData(540, 20);
+            }
+            else
+            {
+                CanSendData(540, 20);
+                MessageBox.Show("请立即停车！！!", "提示", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                //停车
+            }
+            //FileSaveTime.SystemTime = timeGetTime();
+            //if(FileSaveTime.LastSystemTime == 0)
+            //{
+            //    FileSaveTime.TimeErr = 0;
+            //}
+            //else
+            //{
+            //    FileSaveTime.TimeErr = FileSaveTime.SystemTime - FileSaveTime.LastSystemTime;
+            //}
+            //FileSaveTime.LastSystemTime = FileSaveTime.SystemTime;
+            //DataSave.Write("{0:D} {1:D} {2:R16} {3:R16} {4:D} {5:D} {6:R16} {7:R16} {8:R16} {9:R16} {10:D} {11:D} \r\n", 
+            //    FileSaveTime.SystemTime, FileSaveTime.TimeErr,
+            //    m_VehicleImformation.Speed, m_VehicleImformation.Displacement,
+            //    m_VehicleImformation.SteeringWheelAgularVelocity, m_VehicleImformation.ActualSteeringWheelAngle,
+            //    m_LIN_STP313_ReadData[0].TOF1 / 58.0, m_LIN_STP313_ReadData[1].TOF1 / 58.0,
+            //    m_LIN_STP313_ReadData[2].TOF1 / 58.0, m_LIN_STP313_ReadData[3].TOF1 / 58.0,
+            //    UltrasonicSamplingTime.SystemTime, UltrasonicSamplingTime.TimeErr);
+        }
+
         #endregion
 
         #region 线程相关
@@ -1449,29 +1235,45 @@ namespace APA
         private delegate void STP313_DataMapping(LIN_STP313_ReadData dat, ref TextBox[] tx);
         private void STP313_DataShow(LIN_STP313_ReadData show_dat, ref TextBox[] show_tx)
         {
-            STP313_DataMapping m_STP313_DataMapping = new STP313_DataMapping(DataMapping2Control_STP313);
+            STP313_DataMapping m_STP313_DataMapping = new STP313_DataMapping(m_UltrasonicObj.DataMapping2Control_STP313);
             this.Invoke(m_STP313_DataMapping,new object[] { show_dat, show_tx });
         }
 
         private delegate void STP318_DataMapping(LIN_STP318_ReadData dat, ref TextBox tx, ref Label lb);
         private void STP318_DataShow(LIN_STP318_ReadData show_dat, ref TextBox tx, ref Label lb)
         {
-            STP318_DataMapping m_STP318_DataMapping = new STP318_DataMapping(DataMapping2Control_STP318);
+            STP318_DataMapping m_STP318_DataMapping = new STP318_DataMapping(m_UltrasonicObj.DataMapping2Control_STP318);
             this.Invoke(m_STP318_DataMapping, new object[] { show_dat, tx, lb });
         }
 
         private delegate void LRU_STP_Sampling(ref LIN_STP313_ReadData[] LIN_STP313_data);
         private void LinSampling_STP_Sensings(ref LIN_STP313_ReadData[] sdata)
         {
-            LRU_STP_Sampling m_sampling = new LRU_STP_Sampling(LRU_ScheduleTime);
+            LRU_STP_Sampling m_sampling = new LRU_STP_Sampling(m_UltrasonicObj.LRU_ScheduleTime);
             this.Invoke(m_sampling, new object[] { sdata });
         }
 
         private delegate void LRU_STP_TimeSchedule(ref LIN_STP318_ReadData[] m_318Data, ref LIN_STP313_ReadData[] m_313Data, byte step);
         private void LinSampling_STP_TimeSchedule(ref LIN_STP318_ReadData[] m_318Data, ref LIN_STP313_ReadData[] m_313Data, byte step)
         {
-            LRU_STP_TimeSchedule m_sampling = new LRU_STP_TimeSchedule(TimeScheduleStatus1);
+            LRU_STP_TimeSchedule m_sampling = new LRU_STP_TimeSchedule(m_UltrasonicObj.TimeScheduleStatus1);
             this.Invoke(m_sampling, new object[] { m_318Data, m_313Data ,step});
+        }
+
+ 
+
+        private delegate void UI_Show(UInt16 v);
+        private void UI_labelShow(UInt16 v)
+        {
+            UI_Show m_sampling = new UI_Show(cf.UpdateLabelValue);
+            this.Invoke(m_sampling, new object[] { v });
+        }
+
+        private delegate void UI_ChartShow(LIN_STP318_ReadData[] UPA_data, LIN_STP313_ReadData[] APA_data);
+        private void UI_ChartUltrasonicDataShow(LIN_STP318_ReadData[] UPA_data, LIN_STP313_ReadData[] APA_data)
+        {
+            UI_ChartShow m_sampling = new UI_ChartShow(cf.VehicleUltrasonicDataShow);
+            this.Invoke(m_sampling, new object[] { UPA_data, APA_data });
         }
         /// <summary>
         /// 超声波传感器的采样线程
@@ -1519,7 +1321,6 @@ namespace APA
                         {
                             if (LinDeviceStatus)
                             {
-                                
                                 LinSampling_STP_TimeSchedule(ref m_LIN_STP318_ReadData,ref m_LIN_STP313_ReadData,i);
                             }
                             Thread.Sleep(15);
@@ -1532,7 +1333,8 @@ namespace APA
                                             "{14:R16} {15:R16} {16:R16} {17:R16} " +
                                             "{18:R16} {19:R16} {20:R16} {21:R16} " +
                                             "{22:D} {23:D} {24:D} {25:D} " +
-                                            "{26:R16} {27:R16} {28:R16} {29:R16}\r\n",
+                                            "{26:R16} {27:R16} {28:R16} {29:R16}" +
+                                            "{30:R16} {31:R16} {32:R16}\r\n",
                             UltrasonicSamplingTime.SystemTime, UltrasonicSamplingTime.TimeErr,
                             m_VehicleImformation.Speed, m_VehicleImformation.Displacement,
                             m_VehicleImformation.SteeringWheelAgularVelocity, m_VehicleImformation.ActualSteeringWheelAngle,
@@ -1547,8 +1349,14 @@ namespace APA
                             m_LIN_STP313_ReadData[0].Width * 16, m_LIN_STP313_ReadData[1].Width * 16,
                             m_LIN_STP313_ReadData[2].Width * 16, m_LIN_STP313_ReadData[3].Width * 16,
                             m_LIN_STP313_ReadData[0].Level * 3.3 / 255, m_LIN_STP313_ReadData[1].Level * 3.3 / 255,
-                            m_LIN_STP313_ReadData[2].Level * 3.3 / 255, m_LIN_STP313_ReadData[3].Level * 3.3 / 255
+                            m_LIN_STP313_ReadData[2].Level * 3.3 / 255, m_LIN_STP313_ReadData[3].Level * 3.3 / 255,
+                            m_VehicleImformation.X, m_VehicleImformation.Y, m_VehicleImformation.Yaw * 57.3
                             );
+                        }
+                        if (cf.Visible)
+                        {
+                            //UI_labelShow(m_LIN_STP318_ReadData[0].TOF);
+                            UI_ChartUltrasonicDataShow(m_LIN_STP318_ReadData, m_LIN_STP313_ReadData);
                         }
                         for (int k = 0; k < 4; k++) { STP313_DataShow(m_LIN_STP313_ReadData[k], ref SensingControl_LRU[k]); }
                         for (int k = 0; k < 8; k++) { STP318_DataShow(m_LIN_STP318_ReadData[k], ref SensingControl_SRU_TextBox[k], ref SensingControl_SRU_Label[k]); }
